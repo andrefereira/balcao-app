@@ -1,0 +1,787 @@
+import React, { useState, useRef, useEffect, useCallback } from "react";
+import {
+  Sparkles, ClipboardList, PackageSearch, Factory, Truck, Users,
+  Check, X, Share2, ChevronLeft, PenLine, Inbox, RotateCcw, LogOut, Bot,
+} from "lucide-react";
+import { supabase, configurado } from "./supabase.js";
+import { parserLocal } from "./parserLocal.js";
+import { CSS } from "./estilos.js";
+import logoEducarte from "./assets/logo-educarte.webp";
+
+/* ============ CONSTANTES ============ */
+
+const EXEMPLO_WHATS =
+  "Oi, bom dia! Tudo bem? Preciso de 1 caixa de papel A4, 10 canetas azuis, 20 cadernos e 5 pastas plásticas. Consegue mandar hoje à tarde? Obrigada!";
+
+const PAPEIS = {
+  admin:      { nome: "Admin",      abas: ["novo", "pedidos", "separacao", "fornecedores", "entrega", "equipe"] },
+  atendente:  { nome: "Atendente",  abas: ["novo", "pedidos"] },
+  separador:  { nome: "Separador",  abas: ["separacao", "fornecedores", "pedidos"] },
+  entregador: { nome: "Entregador", abas: ["entrega", "pedidos"] },
+};
+
+const ABA_META = {
+  novo:         { Icone: Sparkles,      nome: "Novo" },
+  pedidos:      { Icone: ClipboardList, nome: "Pedidos" },
+  separacao:    { Icone: PackageSearch, nome: "Separação" },
+  fornecedores: { Icone: Factory,       nome: "Fornec." },
+  entrega:      { Icone: Truck,         nome: "Entrega" },
+  equipe:       { Icone: Users,         nome: "Equipe" },
+};
+
+const STATUS_META = {
+  pendente:   { rotulo: "A separar",             cls: "chip-pend" },
+  separado:   { rotulo: "Separado",              cls: "chip-sep" },
+  aguardando: { rotulo: "Aguardando fornecedor", cls: "chip-wait" },
+  entregue:   { rotulo: "Entregue",              cls: "chip-ok" },
+};
+
+const fmt = (d) => new Date(d).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+
+/* ============ AUXILIARES ============ */
+
+function Chip({ status, extra }) {
+  const m = STATUS_META[status];
+  return <span className={`chip ${m.cls}`}>{m.rotulo}{extra ? ` · ${extra}` : ""}</span>;
+}
+
+function statusPedido(p) {
+  const s = p.itens.map((i) => i.status);
+  if (s.every((x) => x === "entregue")) return { rotulo: "Finalizado", cls: "ped-fim" };
+  if (s.some((x) => x === "entregue")) return { rotulo: "Parcialmente entregue", cls: "ped-parc" };
+  if (s.some((x) => x === "separado")) return { rotulo: "Pronto p/ entrega", cls: "ped-sep" };
+  if (s.every((x) => x === "aguardando")) return { rotulo: "Aguardando fornecedor", cls: "ped-wait" };
+  return { rotulo: "Em separação", cls: "ped-aberto" };
+}
+
+function gerarRelatorio(p) {
+  const ent = p.itens.filter((i) => i.status === "entregue");
+  const ag  = p.itens.filter((i) => i.status === "aguardando");
+  const out = p.itens.filter((i) => i.status === "pendente" || i.status === "separado");
+  const nomeCliente = p.cliente_nome.split(" (")[0];
+  let msg = `Olá, ${nomeCliente}! Atualização do seu pedido de ${fmt(p.criado_em)}:\n`;
+  if (ent.length) msg += `\n✅ *Entregue:*\n` + ent.map((i) => `• ${i.qtd}x ${i.nome}`).join("\n");
+  if (out.length) msg += `\n\n📦 *Em preparação na loja:*\n` + out.map((i) => `• ${i.qtd}x ${i.nome}`).join("\n");
+  if (ag.length)  msg += `\n\n⏳ *Aguardando fornecedor:*\n` + ag.map((i) => `• ${i.qtd}x ${i.nome} (${i.fornecedor})`).join("\n");
+  msg += `\n\nQualquer dúvida é só chamar! 😊`;
+  return msg;
+}
+
+/* ============ ASSINATURA ============ */
+
+function AssinaturaPad({ onConfirmar, onCancelar, cliente, salvando }) {
+  const ref = useRef(null);
+  const desenhando = useRef(false);
+  const [temTraco, setTemTraco] = useState(false);
+
+  useEffect(() => {
+    const c = ref.current;
+    const dpr = window.devicePixelRatio || 1;
+    c.width = c.offsetWidth * dpr;
+    c.height = 180 * dpr;
+    const ctx = c.getContext("2d");
+    ctx.scale(dpr, dpr);
+    ctx.lineWidth = 2.2;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = "#1F2A44";
+  }, []);
+
+  const pos = (e) => {
+    const r = ref.current.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  };
+  const down = (e) => {
+    e.preventDefault();
+    ref.current.setPointerCapture(e.pointerId);
+    desenhando.current = true;
+    const ctx = ref.current.getContext("2d");
+    const p = pos(e);
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+  };
+  const move = (e) => {
+    if (!desenhando.current) return;
+    const ctx = ref.current.getContext("2d");
+    const p = pos(e);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+    setTemTraco(true);
+  };
+  const up = () => { desenhando.current = false; };
+  const limpar = () => {
+    const c = ref.current;
+    c.getContext("2d").clearRect(0, 0, c.width, c.height);
+    setTemTraco(false);
+  };
+
+  return (
+    <div className="modal-fundo">
+      <div className="modal">
+        <h3>Assinatura de recebimento</h3>
+        <p className="mut">{cliente} — confirme o recebimento assinando abaixo.</p>
+        <canvas
+          ref={ref}
+          className="canvas-assin"
+          style={{ touchAction: "none" }}
+          onPointerDown={down}
+          onPointerMove={move}
+          onPointerUp={up}
+        />
+        <div className="linha-btns">
+          <button className="btn fantasma" onClick={limpar}><RotateCcw size={15}/> Limpar</button>
+          <button className="btn fantasma" onClick={onCancelar}>Cancelar</button>
+          <button
+            className="btn primario"
+            disabled={!temTraco || salvando}
+            onClick={() => onConfirmar(ref.current.toDataURL("image/png"))}
+          >
+            <Check size={16}/>{salvando ? "Salvando…" : "Confirmar entrega"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============ LOGIN (magic link) ============ */
+
+function TelaLogin() {
+  const [email, setEmail] = useState("");
+  const [enviado, setEnviado] = useState(false);
+  const [erro, setErro] = useState(null);
+  const [enviando, setEnviando] = useState(false);
+
+  const entrar = async () => {
+    setEnviando(true);
+    setErro(null);
+    const { error } = await supabase.auth.signInWithOtp({
+      email: email.trim(),
+      options: { emailRedirectTo: window.location.origin + import.meta.env.BASE_URL },
+    });
+    setEnviando(false);
+    if (error) setErro(error.message);
+    else setEnviado(true);
+  };
+
+  return (
+    <div className="login-tela">
+      <style>{CSS}</style>
+      <div className="login-caixa">
+        <div className="marca">
+          <img src={logoEducarte} alt="Educarte" className="marca-logo" />
+          <div>
+            <h1 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 22, fontWeight: 700 }}>Educarte</h1>
+            <p style={{ fontSize: 12, color: "var(--ink-soft)" }}>Balcão — do pedido à entrega</p>
+          </div>
+        </div>
+        <label className="rotulo">Seu e-mail</label>
+        <input
+          className="campo"
+          type="email"
+          placeholder="voce@exemplo.com"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && email.includes("@") && entrar()}
+        />
+        <button
+          className="btn primario largo"
+          disabled={!email.includes("@") || enviando}
+          onClick={entrar}
+        >
+          {enviando ? "Enviando…" : "Receber link de acesso"}
+        </button>
+        {enviado && (
+          <div className="login-msg-ok">
+            📬 Link enviado! Abra seu e-mail e toque no link para entrar — sem senha.
+          </div>
+        )}
+        {erro && <div className="login-msg-erro">{erro}</div>}
+      </div>
+    </div>
+  );
+}
+
+/* ============ TELA DE CONFIGURAÇÃO PENDENTE ============ */
+
+function TelaConfiguracao() {
+  return (
+    <div className="login-tela">
+      <style>{CSS}</style>
+      <div className="login-caixa">
+        <h2 style={{ fontFamily: "'Outfit', sans-serif", marginBottom: 8 }}>Configuração pendente</h2>
+        <p className="mut" style={{ lineHeight: 1.5 }}>
+          As variáveis <code>VITE_SUPABASE_URL</code> e <code>VITE_SUPABASE_ANON_KEY</code> não
+          foram definidas. Crie um arquivo <code>.env</code> na raiz do projeto (veja o{" "}
+          <code>.env.example</code>) ou configure os secrets no GitHub. O passo a passo completo
+          está no README.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/* ============ APP ============ */
+
+export default function App() {
+  const [sessao, setSessao] = useState(undefined); // undefined = carregando
+  const [perfil, setPerfil] = useState(null);
+
+  const [aba, setAba] = useState("pedidos");
+  const [pedidos, setPedidos] = useState([]);
+  const [clientes, setClientes] = useState([]);
+  const [produtos, setProdutos] = useState([]);
+  const [equipe, setEquipe] = useState([]);
+  const [carregando, setCarregando] = useState(true);
+  const [detalhe, setDetalhe] = useState(null);
+
+  // novo pedido
+  const [texto, setTexto] = useState("");
+  const [clienteId, setClienteId] = useState(null);
+  const [interpretando, setInterpretando] = useState(false);
+  const [rascunho, setRascunho] = useState(null);
+  const [origemIA, setOrigemIA] = useState(null); // 'claude' | 'local'
+
+  // fluxos
+  const [recebendoDe, setRecebendoDe] = useState(null);
+  const [marcados, setMarcados] = useState({});
+  const [assinando, setAssinando] = useState(null);
+  const [salvandoEntrega, setSalvandoEntrega] = useState(false);
+  const [toast, setToast] = useState(null);
+
+  const avisar = (m) => { setToast(m); setTimeout(() => setToast(null), 2800); };
+
+  /* --- sessão --- */
+  useEffect(() => {
+    if (!configurado) return;
+    supabase.auth.getSession().then(({ data }) => setSessao(data.session));
+    const { data: sub } = supabase.auth.onAuthStateChange((_ev, s) => setSessao(s));
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  /* --- carregar dados --- */
+  const carregarTudo = useCallback(async () => {
+    setCarregando(true);
+    const [{ data: perf }, { data: peds }, { data: clis }, { data: prods }] = await Promise.all([
+      supabase.from("perfis").select("*").eq("id", sessao.user.id).single(),
+      supabase
+        .from("pedidos")
+        .select("id, criado_em, cliente_id, clientes(nome), itens_pedido(*)")
+        .order("criado_em", { ascending: false }),
+      supabase.from("clientes").select("*").order("nome"),
+      supabase.from("produtos").select("*, fornecedores(nome)").eq("ativo", true).order("nome"),
+    ]);
+    setPerfil(perf);
+    setPedidos(
+      (peds || []).map((p) => ({
+        ...p,
+        cliente_nome: p.clientes?.nome || "Cliente",
+        itens: (p.itens_pedido || []).sort((a, b) => a.id - b.id),
+      })),
+    );
+    setClientes(clis || []);
+    setProdutos(
+      (prods || []).map((p) => ({ ...p, fornecedor_nome: p.fornecedores?.nome || "—" })),
+    );
+    if ((clis || []).length && clienteId == null) setClienteId(clis[0].id);
+    setCarregando(false);
+  }, [sessao, clienteId]);
+
+  useEffect(() => { if (sessao) carregarTudo(); }, [sessao]); // eslint-disable-line
+
+  const carregarEquipe = useCallback(async () => {
+    const { data } = await supabase.from("perfis").select("*").order("criado_em");
+    setEquipe(data || []);
+  }, []);
+  useEffect(() => { if (aba === "equipe" && perfil?.papel === "admin") carregarEquipe(); }, [aba, perfil, carregarEquipe]);
+
+  /* --- interpretação (Edge Function → fallback local) --- */
+  const interpretar = async () => {
+    setInterpretando(true);
+    setRascunho(null);
+    let itens = null;
+    try {
+      const { data, error } = await supabase.functions.invoke("interpretar-pedido", {
+        body: { texto },
+      });
+      if (error || data?.erro) throw new Error(data?.erro || error.message);
+      itens = data.itens;
+      setOrigemIA("claude");
+    } catch {
+      itens = parserLocal(texto, produtos);
+      setOrigemIA("local");
+    }
+    const porId = Object.fromEntries(produtos.map((p) => [p.id, p]));
+    setRascunho(
+      (itens || [])
+        .filter((i) => porId[i.produto_id])
+        .map((i, idx) => ({
+          key: `r${idx}`,
+          qtd: i.qtd || 1,
+          escolhido: i.produto_id,
+          opcoes: [i.produto_id, ...(i.alternativas || []).filter((a) => porId[a])],
+          ambiguo: (i.alternativas || []).filter((a) => porId[a]).length > 0,
+        })),
+    );
+    setInterpretando(false);
+  };
+
+  const criarPedido = async () => {
+    const { data: ped, error } = await supabase
+      .from("pedidos")
+      .insert({ cliente_id: clienteId, criado_por: sessao.user.id })
+      .select()
+      .single();
+    if (error) return avisar("Erro ao criar pedido: " + error.message);
+
+    const porId = Object.fromEntries(produtos.map((p) => [p.id, p]));
+    const itens = rascunho.map((r) => {
+      const pr = porId[r.escolhido];
+      return {
+        pedido_id: ped.id,
+        produto_id: pr.id,
+        nome: pr.nome,
+        qtd: r.qtd,
+        status: "pendente",
+        fornecedor: pr.fornecedor_nome,
+      };
+    });
+    const { error: e2 } = await supabase.from("itens_pedido").insert(itens);
+    if (e2) return avisar("Erro nos itens: " + e2.message);
+
+    setTexto(""); setRascunho(null);
+    await carregarTudo();
+    setAba(perfil.papel === "atendente" ? "pedidos" : "separacao");
+    avisar("Pedido criado ✓");
+  };
+
+  const mudarItem = async (itemId, patch) => {
+    const { error } = await supabase.from("itens_pedido").update(patch).eq("id", itemId);
+    if (error) return avisar("Erro: " + error.message);
+    await carregarTudo();
+  };
+
+  /* --- derivados --- */
+  const itensSeparacao = pedidos.flatMap((p) =>
+    p.itens.filter((i) => i.status === "pendente").map((i) => ({ ...i, pedido: p })));
+  const itensAguardando = pedidos.flatMap((p) =>
+    p.itens.filter((i) => i.status === "aguardando").map((i) => ({ ...i, pedido: p })));
+  const porFornecedor = itensAguardando.reduce((acc, it) => {
+    (acc[it.fornecedor || "Sem fornecedor"] ||= []).push(it);
+    return acc;
+  }, {});
+  const pedidosEntrega = pedidos.filter((p) => p.itens.some((i) => i.status === "separado"));
+
+  const confirmarRecebimento = async () => {
+    const ids = Object.keys(marcados).filter((k) => marcados[k]).map(Number);
+    const { error } = await supabase
+      .from("itens_pedido")
+      .update({ status: "pendente" })
+      .in("id", ids);
+    if (error) return avisar("Erro: " + error.message);
+    setRecebendoDe(null); setMarcados({});
+    await carregarTudo();
+    avisar("Itens liberados para separação ✓");
+  };
+
+  const confirmarEntrega = async (assinaturaDataUrl) => {
+    setSalvandoEntrega(true);
+    const p = assinando;
+    let caminho = null;
+    try {
+      const blob = await (await fetch(assinaturaDataUrl)).blob();
+      caminho = `pedido-${p.id}-${Date.now()}.png`;
+      const { error: eUp } = await supabase.storage
+        .from("assinaturas")
+        .upload(caminho, blob, { contentType: "image/png" });
+      if (eUp) throw eUp;
+    } catch (e) {
+      setSalvandoEntrega(false);
+      return avisar("Erro ao salvar assinatura: " + (e.message || e));
+    }
+
+    const idsSeparados = p.itens.filter((i) => i.status === "separado").map((i) => i.id);
+    await supabase.from("entregas").insert({
+      pedido_id: p.id,
+      assinatura_path: caminho,
+      entregue_por: sessao.user.id,
+    });
+    const { error } = await supabase
+      .from("itens_pedido")
+      .update({ status: "entregue", entregue_em: new Date().toISOString() })
+      .in("id", idsSeparados);
+    setSalvandoEntrega(false);
+    if (error) return avisar("Erro: " + error.message);
+
+    setAssinando(null);
+    await carregarTudo();
+    setDetalhe(p.id);
+    setAba("pedidos");
+    avisar("Entrega registrada com assinatura ✓");
+  };
+
+  const mudarPapel = async (id, papel) => {
+    const { error } = await supabase.from("perfis").update({ papel }).eq("id", id);
+    if (error) return avisar("Erro: " + error.message);
+    await carregarEquipe();
+    avisar("Papel atualizado ✓");
+  };
+
+  const compartilhar = (p) => {
+    const url = "https://wa.me/?text=" + encodeURIComponent(gerarRelatorio(p));
+    window.open(url, "_blank");
+  };
+
+  const sair = () => supabase.auth.signOut();
+
+  /* --- guardas de tela --- */
+  if (!configurado) return <TelaConfiguracao/>;
+  if (sessao === undefined) {
+    return <div className="tela-cheia"><style>{CSS}</style>Carregando…</div>;
+  }
+  if (!sessao) return <TelaLogin/>;
+  if (carregando || !perfil) {
+    return <div className="tela-cheia"><style>{CSS}</style>Carregando seus dados…</div>;
+  }
+
+  const abasVisiveis = PAPEIS[perfil.papel]?.abas || ["pedidos"];
+  const abaAtual = abasVisiveis.includes(aba) ? aba : abasVisiveis[0];
+  const badge = {
+    separacao: itensSeparacao.length,
+    fornecedores: itensAguardando.length,
+    entrega: pedidosEntrega.length,
+  };
+  const pedidoDetalhe = pedidos.find((p) => p.id === detalhe);
+
+  return (
+    <div className="app">
+      <style>{CSS}</style>
+
+      <header className="topo">
+        <div className="marca">
+          <img src={logoEducarte} alt="Educarte" className="marca-logo" />
+          <div>
+            <h1>Educarte</h1>
+            <p>{perfil.nome || perfil.email}</p>
+          </div>
+        </div>
+        <div className="topo-dir">
+          <span className="papel-tag">{PAPEIS[perfil.papel]?.nome}</span>
+          <button className="btn-sair" onClick={sair} title="Sair"><LogOut size={15}/></button>
+        </div>
+      </header>
+
+      <main className="conteudo">
+        {/* ============ NOVO PEDIDO ============ */}
+        {abaAtual === "novo" && (
+          <section>
+            <h2 className="titulo-sec">Novo pedido</h2>
+            <p className="mut">Cole a mensagem do WhatsApp e deixe a IA montar a lista.</p>
+
+            <label className="rotulo">Cliente</label>
+            <select className="campo" value={clienteId ?? ""} onChange={(e) => setClienteId(Number(e.target.value))}>
+              {clientes.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+            </select>
+
+            <label className="rotulo">Mensagem recebida</label>
+            <textarea
+              className="campo area"
+              rows={5}
+              placeholder="Cole aqui o texto do WhatsApp…"
+              value={texto}
+              onChange={(e) => setTexto(e.target.value)}
+            />
+            <button className="link-exemplo" onClick={() => setTexto(EXEMPLO_WHATS)}>
+              Usar mensagem de exemplo
+            </button>
+
+            <button className="btn primario largo" disabled={!texto.trim() || interpretando} onClick={interpretar}>
+              <Sparkles size={16}/>{interpretando ? "Interpretando…" : "Interpretar com IA"}
+            </button>
+
+            {interpretando && (
+              <div className="ia-pensando">
+                <div className="pontinhos"><span/><span/><span/></div>
+                Lendo a mensagem e identificando produtos e quantidades…
+              </div>
+            )}
+
+            {rascunho && !interpretando && (
+              <div className="cartao rascunho">
+                <h3>Itens identificados</h3>
+                {rascunho.length === 0 && <p className="mut">Nenhum produto do catálogo foi identificado no texto.</p>}
+                {rascunho.map((r) => {
+                  const porId = Object.fromEntries(produtos.map((p) => [p.id, p]));
+                  return (
+                    <div key={r.key} className={`item-rasc ${r.ambiguo ? "amb" : ""}`}>
+                      <input
+                        type="number" min={1} className="qtd"
+                        value={r.qtd}
+                        onChange={(e) => setRascunho((rs) => rs.map((x) => x.key === r.key ? { ...x, qtd: +e.target.value || 1 } : x))}
+                      />
+                      {r.ambiguo ? (
+                        <div className="amb-bloco">
+                          <span className="amb-aviso">⚠️ Qual destes o cliente quis dizer?</span>
+                          <select
+                            className="campo compacto"
+                            value={r.escolhido}
+                            onChange={(e) => setRascunho((rs) => rs.map((x) => x.key === r.key ? { ...x, escolhido: Number(e.target.value), ambiguo: false } : x))}
+                          >
+                            {r.opcoes.map((o) => <option key={o} value={o}>{porId[o]?.nome}</option>)}
+                          </select>
+                        </div>
+                      ) : (
+                        <span className="nome-item">{porId[r.escolhido]?.nome}</span>
+                      )}
+                      <button className="btn-x" onClick={() => setRascunho((rs) => rs.filter((x) => x.key !== r.key))}><X size={15}/></button>
+                    </div>
+                  );
+                })}
+                {rascunho.length > 0 && (
+                  <>
+                    <button
+                      className="btn primario largo"
+                      disabled={rascunho.some((r) => r.ambiguo)}
+                      onClick={criarPedido}
+                    >
+                      <Check size={16}/> Confirmar e criar pedido
+                    </button>
+                    {rascunho.some((r) => r.ambiguo) && (
+                      <p className="mut mini" style={{ marginTop: 8 }}>Resolva os itens marcados com ⚠️ antes de confirmar.</p>
+                    )}
+                  </>
+                )}
+                <div className="origem-ia">
+                  <Bot size={13}/>
+                  {origemIA === "claude"
+                    ? "Interpretado pela API do Claude"
+                    : "Interpretado pelo parser local (Edge Function não publicada — veja o README)"}
+                </div>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* ============ PEDIDOS ============ */}
+        {abaAtual === "pedidos" && !pedidoDetalhe && (
+          <section>
+            <h2 className="titulo-sec">Pedidos</h2>
+            {pedidos.length === 0 && (
+              <div className="vazio"><Inbox size={28}/><p>Nenhum pedido ainda. Crie o primeiro na aba Novo.</p></div>
+            )}
+            {pedidos.map((p) => {
+              const st = statusPedido(p);
+              const ent = p.itens.filter((i) => i.status === "entregue").length;
+              return (
+                <button key={p.id} className="cartao clicavel" onClick={() => setDetalhe(p.id)}>
+                  <div className="ped-topo">
+                    <strong>#{p.id} · {p.cliente_nome}</strong>
+                    <span className={`selo ${st.cls}`}>{st.rotulo}</span>
+                  </div>
+                  <p className="mut mini">
+                    Criado em {fmt(p.criado_em)} · {ent}/{p.itens.length} itens entregues
+                  </p>
+                  {p.itens.length > 0 && (
+                    <div className="barra"><div className="barra-cheia" style={{ width: `${(ent / p.itens.length) * 100}%` }}/></div>
+                  )}
+                </button>
+              );
+            })}
+          </section>
+        )}
+
+        {abaAtual === "pedidos" && pedidoDetalhe && (
+          <section>
+            <button className="volta" onClick={() => setDetalhe(null)}><ChevronLeft size={16}/> Todos os pedidos</button>
+            <div className="ped-topo">
+              <h2 className="titulo-sec">#{pedidoDetalhe.id} · {pedidoDetalhe.cliente_nome}</h2>
+            </div>
+            <span className={`selo ${statusPedido(pedidoDetalhe).cls}`}>{statusPedido(pedidoDetalhe).rotulo}</span>
+
+            <div className="cartao" style={{ marginTop: 12 }}>
+              {pedidoDetalhe.itens.map((i) => (
+                <div key={i.id} className="item-linha">
+                  <span className="qtd-fixa">{i.qtd}x</span>
+                  <span className="nome-item">{i.nome}</span>
+                  <Chip status={i.status} extra={i.status === "entregue" && i.entregue_em ? fmt(i.entregue_em) : i.status === "aguardando" ? i.fornecedor : null}/>
+                </div>
+              ))}
+            </div>
+
+            <div className="cartao relatorio">
+              <h3>Relatório para o cliente</h3>
+              <pre>{gerarRelatorio(pedidoDetalhe)}</pre>
+              <button className="btn whats largo" onClick={() => compartilhar(pedidoDetalhe)}>
+                <Share2 size={16}/> Compartilhar no WhatsApp
+              </button>
+            </div>
+          </section>
+        )}
+
+        {/* ============ SEPARAÇÃO ============ */}
+        {abaAtual === "separacao" && (
+          <section>
+            <h2 className="titulo-sec">Separação</h2>
+            <p className="mut">Marque cada item conforme for separando no estoque.</p>
+            {itensSeparacao.length === 0 && (
+              <div className="vazio"><Inbox size={28}/><p>Nada para separar agora. 👌</p></div>
+            )}
+            {itensSeparacao.map((it) => (
+              <div key={it.id} className="cartao">
+                <p className="mut mini">Pedido #{it.pedido.id} · {it.pedido.cliente_nome}</p>
+                <div className="item-linha">
+                  <span className="qtd-fixa">{it.qtd}x</span>
+                  <span className="nome-item">{it.nome}</span>
+                </div>
+                <div className="linha-btns">
+                  <button className="btn ok" onClick={() => { mudarItem(it.id, { status: "separado" }); avisar("Item separado ✓"); }}>
+                    <Check size={15}/> Separado
+                  </button>
+                  <button className="btn alerta" onClick={() => { mudarItem(it.id, { status: "aguardando" }); avisar(`Enviado para a lista: ${it.fornecedor}`); }}>
+                    <X size={15}/> Sem estoque
+                  </button>
+                </div>
+              </div>
+            ))}
+          </section>
+        )}
+
+        {/* ============ FORNECEDORES ============ */}
+        {abaAtual === "fornecedores" && (
+          <section>
+            <h2 className="titulo-sec">Fornecedores</h2>
+            <p className="mut">Itens sem estoque, agrupados para o próximo pedido de compra.</p>
+            {Object.keys(porFornecedor).length === 0 && (
+              <div className="vazio"><Factory size={28}/><p>Nenhum item aguardando fornecedor.</p></div>
+            )}
+            {Object.entries(porFornecedor).map(([forn, itens]) => (
+              <div key={forn} className="cartao">
+                <div className="ped-topo">
+                  <strong className="forn-nome"><Factory size={15}/> {forn}</strong>
+                  <span className="selo ped-wait">{itens.length} {itens.length === 1 ? "item" : "itens"}</span>
+                </div>
+                {itens.map((it) => (
+                  <div key={it.id} className="item-linha">
+                    <span className="qtd-fixa">{it.qtd}x</span>
+                    <span className="nome-item">{it.nome}</span>
+                    <span className="mut mini">p/ {it.pedido.cliente_nome.split(" (")[0]}</span>
+                  </div>
+                ))}
+                <button className="btn primario largo" onClick={() => { setRecebendoDe(forn); setMarcados({}); }}>
+                  <PackageSearch size={16}/> Mercadoria recebida
+                </button>
+              </div>
+            ))}
+          </section>
+        )}
+
+        {/* ============ ENTREGA ============ */}
+        {abaAtual === "entrega" && (
+          <section>
+            <h2 className="titulo-sec">Entregas</h2>
+            <p className="mut">Pedidos com itens separados, prontos para sair.</p>
+            {pedidosEntrega.length === 0 && (
+              <div className="vazio"><Truck size={28}/><p>Nenhuma entrega pendente.</p></div>
+            )}
+            {pedidosEntrega.map((p) => (
+              <div key={p.id} className="cartao">
+                <div className="ped-topo">
+                  <strong>#{p.id} · {p.cliente_nome}</strong>
+                </div>
+                {p.itens.filter((i) => i.status === "separado").map((i) => (
+                  <div key={i.id} className="item-linha">
+                    <span className="qtd-fixa">{i.qtd}x</span>
+                    <span className="nome-item">{i.nome}</span>
+                  </div>
+                ))}
+                <button className="btn primario largo" onClick={() => setAssinando(p)}>
+                  <PenLine size={16}/> Registrar entrega c/ assinatura
+                </button>
+              </div>
+            ))}
+          </section>
+        )}
+
+        {/* ============ EQUIPE (admin) ============ */}
+        {abaAtual === "equipe" && perfil.papel === "admin" && (
+          <section>
+            <h2 className="titulo-sec">Equipe</h2>
+            <p className="mut">
+              Quem entra pela primeira vez começa como Atendente — ajuste o papel aqui.
+              Cada papel vê apenas as suas telas.
+            </p>
+            <div className="cartao">
+              {equipe.map((m) => (
+                <div key={m.id} className="membro-linha">
+                  <div className="membro-nome">
+                    <strong>{m.nome || "—"}</strong>
+                    <span>{m.email}</span>
+                  </div>
+                  <select
+                    className="campo compacto"
+                    style={{ width: "auto" }}
+                    value={m.papel}
+                    disabled={m.id === perfil.id}
+                    onChange={(e) => mudarPapel(m.id, e.target.value)}
+                  >
+                    {Object.entries(PAPEIS).map(([k, v]) => <option key={k} value={k}>{v.nome}</option>)}
+                  </select>
+                </div>
+              ))}
+            </div>
+            <p className="mut mini">Você não pode alterar o próprio papel (para não se trancar fora do admin).</p>
+          </section>
+        )}
+      </main>
+
+      {/* ============ MODAIS ============ */}
+      {recebendoDe && (
+        <div className="modal-fundo">
+          <div className="modal">
+            <h3>Mercadoria da {recebendoDe}</h3>
+            <p className="mut">Marque o que chegou. Os itens voltam para a fila de separação.</p>
+            {(porFornecedor[recebendoDe] || []).map((it) => (
+              <label key={it.id} className="check-linha">
+                <input type="checkbox" checked={!!marcados[it.id]} onChange={(e) => setMarcados((m) => ({ ...m, [it.id]: e.target.checked }))}/>
+                <span>{it.qtd}x {it.nome} <span className="mut mini">— {it.pedido.cliente_nome.split(" (")[0]}</span></span>
+              </label>
+            ))}
+            <div className="linha-btns">
+              <button className="btn fantasma" onClick={() => setRecebendoDe(null)}>Cancelar</button>
+              <button className="btn primario" disabled={!Object.values(marcados).some(Boolean)} onClick={confirmarRecebimento}>
+                <Check size={16}/> Liberar p/ separação
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {assinando && (
+        <AssinaturaPad
+          cliente={assinando.cliente_nome}
+          salvando={salvandoEntrega}
+          onCancelar={() => setAssinando(null)}
+          onConfirmar={confirmarEntrega}
+        />
+      )}
+
+      {toast && <div className="toast">{toast}</div>}
+
+      {/* ============ NAVEGAÇÃO ============ */}
+      <nav className="abas">
+        {abasVisiveis.map((k) => {
+          const { Icone, nome } = ABA_META[k];
+          return (
+            <button key={k} className={`aba ${abaAtual === k ? "ativa" : ""}`} onClick={() => { setAba(k); setDetalhe(null); }}>
+              <span className="aba-ico">
+                <Icone size={19}/>
+                {badge[k] > 0 && <span className="pontinho">{badge[k]}</span>}
+              </span>
+              {nome}
+            </button>
+          );
+        })}
+      </nav>
+    </div>
+  );
+}
