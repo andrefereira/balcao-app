@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   Sparkles, ClipboardList, PackageSearch, Factory, Truck, Users,
   Check, X, Share2, ChevronLeft, PenLine, Inbox, RotateCcw, LogOut, Bot,
+  PackagePlus, UserPlus, Plus,
 } from "lucide-react";
 import { supabase, configurado } from "./supabase.js";
 import { parserLocal } from "./parserLocal.js";
@@ -14,7 +15,7 @@ const EXEMPLO_WHATS =
   "Oi, bom dia! Tudo bem? Preciso de 1 caixa de papel A4, 10 canetas azuis, 20 cadernos e 5 pastas plásticas. Consegue mandar hoje à tarde? Obrigada!";
 
 const PAPEIS = {
-  admin:      { nome: "Admin",      abas: ["novo", "pedidos", "separacao", "fornecedores", "entrega", "equipe"] },
+  admin:      { nome: "Admin",      abas: ["novo", "pedidos", "separacao", "fornecedores", "entrega", "cadastro", "equipe"] },
   atendente:  { nome: "Atendente",  abas: ["novo", "pedidos"] },
   separador:  { nome: "Separador",  abas: ["separacao", "fornecedores", "pedidos"] },
   entregador: { nome: "Entregador", abas: ["entrega", "pedidos"] },
@@ -26,6 +27,7 @@ const ABA_META = {
   separacao:    { Icone: PackageSearch, nome: "Separação" },
   fornecedores: { Icone: Factory,       nome: "Fornec." },
   entrega:      { Icone: Truck,         nome: "Entrega" },
+  cadastro:     { Icone: PackagePlus,   nome: "Cadastro" },
   equipe:       { Icone: Users,         nome: "Equipe" },
 };
 
@@ -231,9 +233,21 @@ export default function App() {
   const [pedidos, setPedidos] = useState([]);
   const [clientes, setClientes] = useState([]);
   const [produtos, setProdutos] = useState([]);
+  const [fornecedores, setFornecedores] = useState([]);
   const [equipe, setEquipe] = useState([]);
   const [carregando, setCarregando] = useState(true);
   const [detalhe, setDetalhe] = useState(null);
+
+  // cadastro (clientes / produtos / fornecedores)
+  const [subCadastro, setSubCadastro] = useState("clientes");
+  const [novoClienteNome, setNovoClienteNome] = useState("");
+  const [novoClienteTel, setNovoClienteTel] = useState("");
+  const [novoFornecedorNome, setNovoFornecedorNome] = useState("");
+  const [novoProdutoNome, setNovoProdutoNome] = useState("");
+  const [novoProdutoChaves, setNovoProdutoChaves] = useState("");
+  const [novoProdutoModificador, setNovoProdutoModificador] = useState("");
+  const [novoProdutoFornecedorId, setNovoProdutoFornecedorId] = useState(null);
+  const [salvandoCadastro, setSalvandoCadastro] = useState(false);
 
   // novo pedido
   const [texto, setTexto] = useState("");
@@ -262,7 +276,7 @@ export default function App() {
   /* --- carregar dados --- */
   const carregarTudo = useCallback(async () => {
     setCarregando(true);
-    const [{ data: perf }, { data: peds }, { data: clis }, { data: prods }] = await Promise.all([
+    const [{ data: perf }, { data: peds }, { data: clis }, { data: prods }, { data: forns }] = await Promise.all([
       supabase.from("perfis").select("*").eq("id", sessao.user.id).single(),
       supabase
         .from("pedidos")
@@ -270,6 +284,7 @@ export default function App() {
         .order("criado_em", { ascending: false }),
       supabase.from("clientes").select("*").order("nome"),
       supabase.from("produtos").select("*, fornecedores(nome)").eq("ativo", true).order("nome"),
+      supabase.from("fornecedores").select("*").order("nome"),
     ]);
     setPerfil(perf);
     setPedidos(
@@ -283,9 +298,11 @@ export default function App() {
     setProdutos(
       (prods || []).map((p) => ({ ...p, fornecedor_nome: p.fornecedores?.nome || "—" })),
     );
+    setFornecedores(forns || []);
     if ((clis || []).length && clienteId == null) setClienteId(clis[0].id);
+    if ((forns || []).length && novoProdutoFornecedorId == null) setNovoProdutoFornecedorId(forns[0].id);
     setCarregando(false);
-  }, [sessao, clienteId]);
+  }, [sessao, clienteId, novoProdutoFornecedorId]);
 
   useEffect(() => { if (sessao) carregarTudo(); }, [sessao]); // eslint-disable-line
 
@@ -418,6 +435,53 @@ export default function App() {
     setDetalhe(p.id);
     setAba("pedidos");
     avisar("Entrega registrada com assinatura ✓");
+  };
+
+  const criarCliente = async () => {
+    if (!novoClienteNome.trim()) return;
+    setSalvandoCadastro(true);
+    const { error } = await supabase
+      .from("clientes")
+      .insert({ nome: novoClienteNome.trim(), telefone: novoClienteTel.trim() || null });
+    setSalvandoCadastro(false);
+    if (error) return avisar("Erro ao cadastrar cliente: " + error.message);
+    setNovoClienteNome(""); setNovoClienteTel("");
+    await carregarTudo();
+    avisar("Cliente cadastrado ✓");
+  };
+
+  const criarFornecedor = async () => {
+    if (!novoFornecedorNome.trim()) return;
+    setSalvandoCadastro(true);
+    const { error } = await supabase
+      .from("fornecedores")
+      .insert({ nome: novoFornecedorNome.trim() });
+    setSalvandoCadastro(false);
+    if (error) return avisar("Erro ao cadastrar fornecedor: " + error.message);
+    setNovoFornecedorNome("");
+    await carregarTudo();
+    avisar("Fornecedor cadastrado ✓");
+  };
+
+  const criarProduto = async () => {
+    if (!novoProdutoNome.trim()) return;
+    setSalvandoCadastro(true);
+    const chaves = novoProdutoChaves
+      .split(",")
+      .map((c) => c.trim().toLowerCase())
+      .filter(Boolean);
+    const { error } = await supabase.from("produtos").insert({
+      nome: novoProdutoNome.trim(),
+      chaves,
+      modificador: novoProdutoModificador.trim() || null,
+      fornecedor_id: novoProdutoFornecedorId,
+      ativo: true,
+    });
+    setSalvandoCadastro(false);
+    if (error) return avisar("Erro ao cadastrar produto: " + error.message);
+    setNovoProdutoNome(""); setNovoProdutoChaves(""); setNovoProdutoModificador("");
+    await carregarTudo();
+    avisar("Produto cadastrado ✓");
   };
 
   const mudarPapel = async (id, papel) => {
@@ -699,6 +763,94 @@ export default function App() {
                 </button>
               </div>
             ))}
+          </section>
+        )}
+
+        {/* ============ CADASTRO (admin) ============ */}
+        {abaAtual === "cadastro" && (
+          <section>
+            <h2 className="titulo-sec">Cadastro</h2>
+            <p className="mut">Clientes, produtos e fornecedores usados nos pedidos.</p>
+
+            <div className="subabas">
+              <button className={`subaba ${subCadastro === "clientes" ? "ativa" : ""}`} onClick={() => setSubCadastro("clientes")}>
+                <UserPlus size={14}/> Clientes
+              </button>
+              <button className={`subaba ${subCadastro === "produtos" ? "ativa" : ""}`} onClick={() => setSubCadastro("produtos")}>
+                <PackagePlus size={14}/> Produtos
+              </button>
+              <button className={`subaba ${subCadastro === "fornecedores" ? "ativa" : ""}`} onClick={() => setSubCadastro("fornecedores")}>
+                <Factory size={14}/> Fornecedores
+              </button>
+            </div>
+
+            {subCadastro === "clientes" && (
+              <>
+                <div className="cartao">
+                  <label className="rotulo">Nome</label>
+                  <input className="campo" value={novoClienteNome} onChange={(e) => setNovoClienteNome(e.target.value)} placeholder="Nome do cliente"/>
+                  <label className="rotulo">Telefone (opcional)</label>
+                  <input className="campo" value={novoClienteTel} onChange={(e) => setNovoClienteTel(e.target.value)} placeholder="(11) 99999-9999"/>
+                  <button className="btn primario largo" disabled={!novoClienteNome.trim() || salvandoCadastro} onClick={criarCliente}>
+                    <Plus size={16}/> {salvandoCadastro ? "Salvando…" : "Cadastrar cliente"}
+                  </button>
+                </div>
+                {clientes.map((c) => (
+                  <div key={c.id} className="item-linha">
+                    <span className="nome-item">{c.nome}</span>
+                    {c.telefone && <span className="mut mini">{c.telefone}</span>}
+                  </div>
+                ))}
+              </>
+            )}
+
+            {subCadastro === "fornecedores" && (
+              <>
+                <div className="cartao">
+                  <label className="rotulo">Nome</label>
+                  <input className="campo" value={novoFornecedorNome} onChange={(e) => setNovoFornecedorNome(e.target.value)} placeholder="Nome do fornecedor"/>
+                  <button className="btn primario largo" disabled={!novoFornecedorNome.trim() || salvandoCadastro} onClick={criarFornecedor}>
+                    <Plus size={16}/> {salvandoCadastro ? "Salvando…" : "Cadastrar fornecedor"}
+                  </button>
+                </div>
+                {fornecedores.map((f) => (
+                  <div key={f.id} className="item-linha">
+                    <span className="nome-item">{f.nome}</span>
+                  </div>
+                ))}
+              </>
+            )}
+
+            {subCadastro === "produtos" && (
+              <>
+                <div className="cartao">
+                  <label className="rotulo">Nome</label>
+                  <input className="campo" value={novoProdutoNome} onChange={(e) => setNovoProdutoNome(e.target.value)} placeholder="Ex.: Caderno 96 folhas Jandaia"/>
+                  <label className="rotulo">Palavras-chave (separadas por vírgula)</label>
+                  <input className="campo" value={novoProdutoChaves} onChange={(e) => setNovoProdutoChaves(e.target.value)} placeholder="caderno, 96 folhas"/>
+                  <label className="rotulo">Modificador (opcional, p/ desempate)</label>
+                  <input className="campo" value={novoProdutoModificador} onChange={(e) => setNovoProdutoModificador(e.target.value)} placeholder="Ex.: azul, 96"/>
+                  <label className="rotulo">Fornecedor</label>
+                  <select
+                    className="campo"
+                    value={novoProdutoFornecedorId ?? ""}
+                    onChange={(e) => setNovoProdutoFornecedorId(Number(e.target.value))}
+                  >
+                    {fornecedores.map((f) => <option key={f.id} value={f.id}>{f.nome}</option>)}
+                  </select>
+                  <button className="btn primario largo" disabled={!novoProdutoNome.trim() || !fornecedores.length || salvandoCadastro} onClick={criarProduto}>
+                    <Plus size={16}/> {salvandoCadastro ? "Salvando…" : "Cadastrar produto"}
+                  </button>
+                  {!fornecedores.length && <p className="mut mini" style={{ marginTop: 8 }}>Cadastre um fornecedor antes de criar produtos.</p>}
+                </div>
+                {produtos.map((p) => (
+                  <div key={p.id} className="item-linha">
+                    <span className="nome-item">{p.nome}</span>
+                    <span className="mut mini">{p.fornecedor_nome}</span>
+                  </div>
+                ))}
+              </>
+            )}
           </section>
         )}
 

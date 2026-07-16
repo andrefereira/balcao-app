@@ -214,6 +214,16 @@ export const CSS = `
   font-size: 13.5px; margin-top: 12px;
 }
 
+/* ---- cadastro ---- */
+.subabas { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+.subaba {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: var(--card); border: 1.5px solid var(--line); border-radius: 99px;
+  padding: 6px 12px; font: inherit; font-size: 12.5px; font-weight: 600;
+  color: var(--ink-soft); cursor: pointer;
+}
+.subaba.ativa { background: var(--blue); border-color: var(--blue); color: #fff; }
+
 /* ---- equipe ---- */
 .membro-linha { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px dashed var(--line); flex-wrap: wrap; }
 .membro-nome { flex: 1; min-width: 130px; }
