@@ -30,16 +30,25 @@ supabase/
 
 ## Estado atual (última sessão)
 
-- Branding trocado de "Balcão" (genérico) para **Educarte** — nome da empresa aplicado no
-  `<title>`, no favicon e nos dois pontos de "marca" dentro de `App.jsx` (tela de login e
-  cabeçalho do app), usando a logo em `src/assets/logo-educarte.webp`. Ver classe
-  `.marca-logo` em `estilos.js`.
-- Projeto ainda **não publicado**: falta rodar o schema no Supabase, configurar `.env`,
-  publicar a Edge Function `interpretar-pedido`, e fazer o primeiro push para o GitHub
-  (repositório esperado: `balcao-app`, ver `base` em `vite.config.js` — ajustar se o nome
-  do repo for diferente).
-- `npm install` local ainda não foi validado nesta máquina/pasta — rodar `npm install` e
-  `npm run build` como primeiro passo ao continuar.
+- **Publicado**: repositório [andrefereira/balcao-app](https://github.com/andrefereira/balcao-app)
+  (branch `main`), deploy automático via GitHub Actions no GitHub Pages —
+  https://andrefereira.github.io/balcao-app/. Secrets `VITE_SUPABASE_URL`/
+  `VITE_SUPABASE_ANON_KEY` já configurados no Actions; `.env` local também preenchido.
+- Schema do Supabase já rodado (`supabase/schema.sql`), incluindo o catálogo completo da
+  Reval em `supabase/cadastro_reval.sql` (388 produtos, já aplicado).
+- **PWA**: app instalável (manifest + service worker via `vite-plugin-pwa`, ícones em
+  `public/icon-*.png` gerados a partir da marca do logo).
+- Aba **Cadastro** (Admin) para clientes/produtos/fornecedores pela interface, sem precisar
+  de SQL Editor pro dia a dia.
+- **Novo pedido** aceita anexar uma **foto do pedido manuscrito**, além de colar texto —
+  ambos vão para a Edge Function `interpretar-pedido`, que agora manda imagem + texto pro
+  Claude (visão) numa única chamada. Precisa da migração
+  `supabase/storage_fotos_pedido.sql` (bucket `fotos-pedido` + coluna
+  `pedidos.foto_pedido_path`) rodada no SQL Editor.
+- **Edge Function `interpretar-pedido` ainda não foi publicada** (`supabase functions
+  deploy`) — sem isso, texto cai no parser local (`parserLocal.js`) e uma foto anexada não
+  tem como ser lida (aparece aviso pedindo pra publicar a função). Publicar é o próximo
+  passo natural para a IA (texto e imagem) funcionar de verdade.
 
 ## Papéis e telas
 

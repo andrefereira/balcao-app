@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   Sparkles, ClipboardList, PackageSearch, Factory, Truck, Users,
   Check, X, Share2, ChevronLeft, PenLine, Inbox, RotateCcw, LogOut, Bot,
-  PackagePlus, UserPlus, Plus,
+  PackagePlus, UserPlus, Plus, ImagePlus,
 } from "lucide-react";
 import { supabase, configurado } from "./supabase.js";
 import { parserLocal } from "./parserLocal.js";
@@ -255,6 +255,13 @@ export default function App() {
   const [interpretando, setInterpretando] = useState(false);
   const [rascunho, setRascunho] = useState(null);
   const [origemIA, setOrigemIA] = useState(null); // 'claude' | 'local'
+  const [erroInterpretacao, setErroInterpretacao] = useState(null);
+  const [imagemArquivo, setImagemArquivo] = useState(null);
+  const [imagemPreview, setImagemPreview] = useState(null);
+
+  // foto do pedido (visualização)
+  const [fotoUrlVendo, setFotoUrlVendo] = useState(null);
+  const [carregandoFoto, setCarregandoFoto] = useState(false);
 
   // fluxos
   const [recebendoDe, setRecebendoDe] = useState(null);
@@ -280,7 +287,7 @@ export default function App() {
       supabase.from("perfis").select("*").eq("id", sessao.user.id).single(),
       supabase
         .from("pedidos")
-        .select("id, criado_em, cliente_id, clientes(nome), itens_pedido(*)")
+        .select("id, criado_em, cliente_id, foto_pedido_path, clientes(nome), itens_pedido(*)")
         .order("criado_em", { ascending: false }),
       supabase.from("clientes").select("*").order("nome"),
       supabase.from("produtos").select("*, fornecedores(nome)").eq("ativo", true).order("nome"),
@@ -312,21 +319,50 @@ export default function App() {
   }, []);
   useEffect(() => { if (aba === "equipe" && perfil?.papel === "admin") carregarEquipe(); }, [aba, perfil, carregarEquipe]);
 
-  /* --- interpretação (Edge Function → fallback local) --- */
+  /* --- imagem anexada (foto do pedido) --- */
+  const selecionarImagem = (e) => {
+    const arquivo = e.target.files?.[0];
+    e.target.value = "";
+    if (!arquivo) return;
+    setImagemArquivo(arquivo);
+    const leitor = new FileReader();
+    leitor.onload = () => setImagemPreview(leitor.result);
+    leitor.readAsDataURL(arquivo);
+  };
+  const removerImagem = () => { setImagemArquivo(null); setImagemPreview(null); };
+
+  const verFotoPedido = async (caminho) => {
+    setCarregandoFoto(true);
+    const { data, error } = await supabase.storage.from("fotos-pedido").createSignedUrl(caminho, 120);
+    setCarregandoFoto(false);
+    if (error) return avisar("Erro ao abrir foto: " + error.message);
+    setFotoUrlVendo(data.signedUrl);
+  };
+
+  /* --- interpretação (Edge Function com visão → fallback local só p/ texto) --- */
   const interpretar = async () => {
     setInterpretando(true);
     setRascunho(null);
+    setErroInterpretacao(null);
     let itens = null;
     try {
       const { data, error } = await supabase.functions.invoke("interpretar-pedido", {
-        body: { texto },
+        body: { texto, imagem: imagemPreview },
       });
       if (error || data?.erro) throw new Error(data?.erro || error.message);
       itens = data.itens;
       setOrigemIA("claude");
     } catch {
-      itens = parserLocal(texto, produtos);
-      setOrigemIA("local");
+      if (texto.trim()) {
+        itens = parserLocal(texto, produtos);
+        setOrigemIA("local");
+      } else {
+        setInterpretando(false);
+        setErroInterpretacao(
+          "Não foi possível ler a foto — o reconhecimento de imagem exige a Edge Function do Claude publicada (veja o README).",
+        );
+        return;
+      }
     }
     const porId = Object.fromEntries(produtos.map((p) => [p.id, p]));
     setRascunho(
@@ -366,7 +402,17 @@ export default function App() {
     const { error: e2 } = await supabase.from("itens_pedido").insert(itens);
     if (e2) return avisar("Erro nos itens: " + e2.message);
 
-    setTexto(""); setRascunho(null);
+    if (imagemArquivo) {
+      const ext = imagemArquivo.name.split(".").pop() || "jpg";
+      const caminho = `pedido-${ped.id}-${Date.now()}.${ext}`;
+      const { error: eFoto } = await supabase.storage
+        .from("fotos-pedido")
+        .upload(caminho, imagemArquivo, { contentType: imagemArquivo.type });
+      if (eFoto) avisar("Pedido criado, mas a foto não pôde ser salva: " + eFoto.message);
+      else await supabase.from("pedidos").update({ foto_pedido_path: caminho }).eq("id", ped.id);
+    }
+
+    setTexto(""); setRascunho(null); setImagemArquivo(null); setImagemPreview(null); setErroInterpretacao(null);
     await carregarTudo();
     setAba(perfil.papel === "atendente" ? "pedidos" : "separacao");
     avisar("Pedido criado ✓");
@@ -559,15 +605,32 @@ export default function App() {
               Usar mensagem de exemplo
             </button>
 
-            <button className="btn primario largo" disabled={!texto.trim() || interpretando} onClick={interpretar}>
+            <label className="rotulo">Ou anexe uma foto do pedido (manuscrito)</label>
+            {!imagemPreview ? (
+              <label className="btn fantasma largo anexo-label">
+                <ImagePlus size={16}/> Escolher foto
+                <input type="file" accept="image/*" capture="environment" onChange={selecionarImagem} style={{ display: "none" }}/>
+              </label>
+            ) : (
+              <div className="anexo-preview">
+                <img src={imagemPreview} alt="Pré-visualização do pedido anexado"/>
+                <button className="btn-x anexo-remover" onClick={removerImagem}><X size={15}/></button>
+              </div>
+            )}
+
+            <button className="btn primario largo" disabled={(!texto.trim() && !imagemArquivo) || interpretando} onClick={interpretar}>
               <Sparkles size={16}/>{interpretando ? "Interpretando…" : "Interpretar com IA"}
             </button>
 
             {interpretando && (
               <div className="ia-pensando">
                 <div className="pontinhos"><span/><span/><span/></div>
-                Lendo a mensagem e identificando produtos e quantidades…
+                Lendo {imagemArquivo ? "a foto" : "a mensagem"} e identificando produtos e quantidades…
               </div>
+            )}
+
+            {erroInterpretacao && !interpretando && (
+              <p className="mut mini" style={{ color: "#B03A3A", marginTop: 8 }}>{erroInterpretacao}</p>
             )}
 
             {rascunho && !interpretando && (
@@ -661,6 +724,17 @@ export default function App() {
               <h2 className="titulo-sec">#{pedidoDetalhe.id} · {pedidoDetalhe.cliente_nome}</h2>
             </div>
             <span className={`selo ${statusPedido(pedidoDetalhe).cls}`}>{statusPedido(pedidoDetalhe).rotulo}</span>
+
+            {pedidoDetalhe.foto_pedido_path && (
+              <button
+                className="btn fantasma"
+                style={{ marginTop: 10 }}
+                disabled={carregandoFoto}
+                onClick={() => verFotoPedido(pedidoDetalhe.foto_pedido_path)}
+              >
+                <ImagePlus size={15}/> {carregandoFoto ? "Abrindo…" : "Ver foto do pedido"}
+              </button>
+            )}
 
             <div className="cartao" style={{ marginTop: 12 }}>
               {pedidoDetalhe.itens.map((i) => (
@@ -904,6 +978,16 @@ export default function App() {
                 <Check size={16}/> Liberar p/ separação
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {fotoUrlVendo && (
+        <div className="modal-fundo" onClick={() => setFotoUrlVendo(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Foto do pedido</h3>
+            <img src={fotoUrlVendo} alt="Foto do pedido anexada" className="foto-pedido-grande"/>
+            <button className="btn fantasma largo" style={{ marginTop: 10 }} onClick={() => setFotoUrlVendo(null)}>Fechar</button>
           </div>
         </div>
       )}

@@ -214,6 +214,19 @@ export const CSS = `
   font-size: 13.5px; margin-top: 12px;
 }
 
+/* ---- anexo de foto (novo pedido) ---- */
+.anexo-label { cursor: pointer; }
+.anexo-preview {
+  position: relative; margin-top: 10px; border-radius: 12px; overflow: hidden;
+  border: 1.5px solid var(--line); max-height: 260px;
+}
+.anexo-preview img { display: block; width: 100%; max-height: 260px; object-fit: cover; }
+.anexo-remover {
+  position: absolute; top: 6px; right: 6px; background: rgba(31,42,68,.65);
+  color: #fff; border-radius: 99px; padding: 5px;
+}
+.foto-pedido-grande { width: 100%; border-radius: 10px; margin-top: 10px; display: block; }
+
 /* ---- cadastro ---- */
 .subabas { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
 .subaba {

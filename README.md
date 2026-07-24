@@ -27,6 +27,9 @@ separados por papel (Admin, Atendente, Separador, Entregador).
 3. Isso cria as tabelas (perfis, clientes, produtos, fornecedores, pedidos, itens_pedido,
    entregas), as políticas de segurança (RLS), o bucket `assinaturas` no Storage, e já
    insere os fornecedores/produtos/clientes de exemplo usados na demonstração.
+4. Rode também `supabase/storage_fotos_pedido.sql` — cria o bucket `fotos-pedido` e a
+   coluna usada para anexar foto de pedido manuscrito na tela de Novo pedido.
+5. (Opcional) Rode `supabase/cadastro_reval.sql` para importar em lote o catálogo da Reval.
 
 **Importante sobre perfis:** o primeiro usuário que fizer login vira automaticamente
 **Admin**. Os seguintes entram como **Atendente** por padrão — o Admin ajusta o papel de
@@ -43,8 +46,9 @@ cp .env.example .env
 
 ## 4. Publicar a Edge Function (interpretação com a API do Claude)
 
-A interpretação dos pedidos usa a API do Claude rodando em uma Edge Function do Supabase
-(assim a sua chave de API nunca fica exposta no navegador). Isso exige o
+A interpretação dos pedidos — inclusive de **fotos de pedidos manuscritos**, anexadas na
+tela de Novo pedido — usa a API do Claude (com visão) rodando em uma Edge Function do
+Supabase (assim a sua chave de API nunca fica exposta no navegador). Isso exige o
 [Supabase CLI](https://supabase.com/docs/guides/cli):
 
 ```bash
