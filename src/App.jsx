@@ -609,7 +609,7 @@ export default function App() {
             {!imagemPreview ? (
               <label className="btn fantasma largo anexo-label">
                 <ImagePlus size={16}/> Escolher foto
-                <input type="file" accept="image/*" capture="environment" onChange={selecionarImagem} style={{ display: "none" }}/>
+                <input type="file" accept="image/*" onChange={selecionarImagem} style={{ display: "none" }}/>
               </label>
             ) : (
               <div className="anexo-preview">
