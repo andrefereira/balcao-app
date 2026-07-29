@@ -151,6 +151,7 @@ export const CSS = `
 .item-rasc .qtd { width: 58px; padding: 7px; border: 1.5px solid var(--line); border-radius: 8px; font: inherit; text-align: center; }
 .amb { background: #FFFBEA; border-radius: 8px; padding: 8px; }
 .amb-bloco { flex: 1; min-width: 200px; }
+.amb-linha { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .amb-aviso { display: block; font-size: 12px; color: #8A6D00; margin-bottom: 5px; font-weight: 600; }
 
 .origem-ia { font-size: 11.5px; color: var(--ink-soft); margin-top: 8px; display: flex; align-items: center; gap: 5px; }

@@ -803,13 +803,21 @@ export default function App() {
                       {r.ambiguo ? (
                         <div className="amb-bloco">
                           <span className="amb-aviso">⚠️ Qual destes o cliente quis dizer?</span>
-                          <select
-                            className="campo compacto"
-                            value={r.escolhido}
-                            onChange={(e) => setRascunho((rs) => rs.map((x) => x.key === r.key ? { ...x, escolhido: Number(e.target.value), ambiguo: false } : x))}
-                          >
-                            {r.opcoes.map((o) => <option key={o} value={o}>{porId[o]?.nome}</option>)}
-                          </select>
+                          <div className="amb-linha">
+                            <select
+                              className="campo compacto"
+                              value={r.escolhido}
+                              onChange={(e) => setRascunho((rs) => rs.map((x) => x.key === r.key ? { ...x, escolhido: Number(e.target.value) } : x))}
+                            >
+                              {r.opcoes.map((o) => <option key={o} value={o}>{porId[o]?.nome}</option>)}
+                            </select>
+                            <button
+                              className="btn ok compacto"
+                              onClick={() => setRascunho((rs) => rs.map((x) => x.key === r.key ? { ...x, ambiguo: false } : x))}
+                            >
+                              <Check size={14}/> Confirmar
+                            </button>
+                          </div>
                         </div>
                       ) : (
                         <span className="nome-item">{porId[r.escolhido]?.nome}</span>
