@@ -114,6 +114,7 @@ export const CSS = `
 .alerta   { background: #FFF3C4; color: #8A6D00; flex: 1; }
 .whats    { background: #25D366; color: #fff; }
 .fantasma { background: transparent; border: 1.5px solid var(--line); color: var(--ink); }
+.perigo   { background: #B03A3A; color: #fff; }
 .largo { width: 100%; margin-top: 10px; }
 .linha-btns { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 

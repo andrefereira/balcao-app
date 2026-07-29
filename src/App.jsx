@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   Sparkles, ClipboardList, PackageSearch, Factory, Truck, Users,
   Check, X, Share2, ChevronLeft, PenLine, Inbox, RotateCcw, LogOut, Bot,
-  PackagePlus, UserPlus, Plus, ImagePlus,
+  PackagePlus, UserPlus, Plus, ImagePlus, Trash2,
 } from "lucide-react";
 import { supabase, configurado } from "./supabase.js";
 import { parserLocal } from "./parserLocal.js";
@@ -262,6 +262,10 @@ export default function App() {
   // foto do pedido (visualização)
   const [fotoUrlVendo, setFotoUrlVendo] = useState(null);
   const [carregandoFoto, setCarregandoFoto] = useState(false);
+
+  // exclusão de pedido
+  const [excluindo, setExcluindo] = useState(null);
+  const [excluindoSalvando, setExcluindoSalvando] = useState(false);
 
   // fluxos
   const [recebendoDe, setRecebendoDe] = useState(null);
@@ -543,6 +547,18 @@ export default function App() {
     window.open(url, "_blank");
   };
 
+  const excluirPedido = async () => {
+    if (!excluindo) return;
+    setExcluindoSalvando(true);
+    const { error } = await supabase.from("pedidos").delete().eq("id", excluindo.id);
+    setExcluindoSalvando(false);
+    if (error) return avisar("Erro ao excluir pedido: " + error.message);
+    setExcluindo(null);
+    setDetalhe(null);
+    await carregarTudo();
+    avisar("Pedido excluído ✓");
+  };
+
   const sair = () => supabase.auth.signOut();
 
   /* --- guardas de tela --- */
@@ -754,6 +770,12 @@ export default function App() {
                 <Share2 size={16}/> Compartilhar no WhatsApp
               </button>
             </div>
+
+            {perfil.papel === "admin" && (
+              <button className="btn perigo largo" onClick={() => setExcluindo(pedidoDetalhe)}>
+                <Trash2 size={16}/> Excluir pedido
+              </button>
+            )}
           </section>
         )}
 
@@ -977,6 +999,24 @@ export default function App() {
               <button className="btn fantasma" onClick={() => setRecebendoDe(null)}>Cancelar</button>
               <button className="btn primario" disabled={!Object.values(marcados).some(Boolean)} onClick={confirmarRecebimento}>
                 <Check size={16}/> Liberar p/ separação
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {excluindo && (
+        <div className="modal-fundo" onClick={() => !excluindoSalvando && setExcluindo(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Excluir pedido #{excluindo.id}?</h3>
+            <p className="mut">
+              O pedido de {excluindo.cliente_nome} e todos os seus itens serão apagados
+              definitivamente. Essa ação não pode ser desfeita.
+            </p>
+            <div className="linha-btns">
+              <button className="btn fantasma" disabled={excluindoSalvando} onClick={() => setExcluindo(null)}>Cancelar</button>
+              <button className="btn perigo" disabled={excluindoSalvando} onClick={excluirPedido}>
+                <Trash2 size={15}/> {excluindoSalvando ? "Excluindo…" : "Excluir definitivamente"}
               </button>
             </div>
           </div>
