@@ -283,7 +283,7 @@ export default function App() {
   /* --- carregar dados --- */
   const carregarTudo = useCallback(async () => {
     setCarregando(true);
-    const [{ data: perf }, { data: peds }, { data: clis }, { data: prods }, { data: forns }] = await Promise.all([
+    const [{ data: perf }, { data: peds, error: erroPeds }, { data: clis }, { data: prods }, { data: forns }] = await Promise.all([
       supabase.from("perfis").select("*").eq("id", sessao.user.id).single(),
       supabase
         .from("pedidos")
@@ -293,6 +293,7 @@ export default function App() {
       supabase.from("produtos").select("*, fornecedores(nome)").eq("ativo", true).order("nome"),
       supabase.from("fornecedores").select("*").order("nome"),
     ]);
+    if (erroPeds) avisar("Erro ao carregar pedidos: " + erroPeds.message);
     setPerfil(perf);
     setPedidos(
       (peds || []).map((p) => ({
