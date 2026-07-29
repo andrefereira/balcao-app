@@ -258,6 +258,8 @@ export default function App() {
   const [erroInterpretacao, setErroInterpretacao] = useState(null);
   const [imagemArquivo, setImagemArquivo] = useState(null);
   const [imagemPreview, setImagemPreview] = useState(null);
+  const [produtoManualId, setProdutoManualId] = useState(null);
+  const [qtdManual, setQtdManual] = useState(1);
 
   // foto do pedido (visualização)
   const [fotoUrlVendo, setFotoUrlVendo] = useState(null);
@@ -313,8 +315,9 @@ export default function App() {
     setFornecedores(forns || []);
     if ((clis || []).length && clienteId == null) setClienteId(clis[0].id);
     if ((forns || []).length && novoProdutoFornecedorId == null) setNovoProdutoFornecedorId(forns[0].id);
+    if ((prods || []).length && produtoManualId == null) setProdutoManualId(prods[0].id);
     setCarregando(false);
-  }, [sessao, clienteId, novoProdutoFornecedorId]);
+  }, [sessao, clienteId, novoProdutoFornecedorId, produtoManualId]);
 
   useEffect(() => { if (sessao) carregarTudo(); }, [sessao]); // eslint-disable-line
 
@@ -344,44 +347,53 @@ export default function App() {
     setFotoUrlVendo(data.signedUrl);
   };
 
-  /* --- interpretação (Edge Function com visão → fallback local só p/ texto) --- */
-  const interpretar = async () => {
-    setInterpretando(true);
-    setRascunho(null);
-    setErroInterpretacao(null);
-    let itens = null;
-    try {
-      const { data, error } = await supabase.functions.invoke("interpretar-pedido", {
-        body: { texto, imagem: imagemPreview },
-      });
-      if (error || data?.erro) throw new Error(data?.erro || error.message);
-      itens = data.itens;
-      setOrigemIA("claude");
-    } catch {
-      if (texto.trim()) {
-        itens = parserLocal(texto, produtos);
-        setOrigemIA("local");
-      } else {
-        setInterpretando(false);
-        setErroInterpretacao(
-          "Não foi possível ler a foto — o reconhecimento de imagem exige a Edge Function do Claude publicada (veja o README).",
-        );
-        return;
-      }
-    }
+  /* --- interpretação: dois métodos independentes, escolhidos pelo atendente --- */
+  const definirRascunhoDeItens = (itens) => {
     const porId = Object.fromEntries(produtos.map((p) => [p.id, p]));
     setRascunho(
       (itens || [])
         .filter((i) => porId[i.produto_id])
         .map((i, idx) => ({
-          key: `r${idx}`,
+          key: `r${idx}-${Date.now()}`,
           qtd: i.qtd || 1,
           escolhido: i.produto_id,
           opcoes: [i.produto_id, ...(i.alternativas || []).filter((a) => porId[a])],
           ambiguo: (i.alternativas || []).filter((a) => porId[a]).length > 0,
         })),
     );
+  };
+
+  const interpretarComIA = async () => {
+    setInterpretando(true);
+    setErroInterpretacao(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("interpretar-pedido", {
+        body: { texto, imagem: imagemPreview },
+      });
+      if (error || data?.erro) throw new Error(data?.erro || error.message);
+      setOrigemIA("claude");
+      definirRascunhoDeItens(data.itens);
+    } catch (e) {
+      setErroInterpretacao(
+        "Não foi possível interpretar com a IA (" + (e.message || e) + "). Tente de novo ou use o Parser local / adicione os itens manualmente.",
+      );
+    }
     setInterpretando(false);
+  };
+
+  const interpretarComParserLocal = () => {
+    setErroInterpretacao(null);
+    setOrigemIA("local");
+    definirRascunhoDeItens(parserLocal(texto, produtos));
+  };
+
+  const adicionarItemManual = () => {
+    if (!produtoManualId) return;
+    setRascunho((atual) => [
+      ...(atual || []),
+      { key: `m${Date.now()}`, qtd: qtdManual || 1, escolhido: produtoManualId, opcoes: [produtoManualId], ambiguo: false },
+    ]);
+    setQtdManual(1);
   };
 
   const criarPedido = async () => {
@@ -603,7 +615,7 @@ export default function App() {
         {abaAtual === "novo" && (
           <section>
             <h2 className="titulo-sec">Novo pedido</h2>
-            <p className="mut">Cole a mensagem do WhatsApp e deixe a IA montar a lista.</p>
+            <p className="mut">Cole a mensagem do WhatsApp, anexe uma foto, ou monte a lista manualmente.</p>
 
             <label className="rotulo">Cliente</label>
             <select className="campo" value={clienteId ?? ""} onChange={(e) => setClienteId(Number(e.target.value))}>
@@ -635,9 +647,24 @@ export default function App() {
               </div>
             )}
 
-            <button className="btn primario largo" disabled={(!texto.trim() && !imagemArquivo) || interpretando} onClick={interpretar}>
-              <Sparkles size={16}/>{interpretando ? "Interpretando…" : "Interpretar com IA"}
-            </button>
+            <div className="linha-btns">
+              <button
+                className="btn primario"
+                style={{ flex: 1 }}
+                disabled={(!texto.trim() && !imagemArquivo) || interpretando}
+                onClick={interpretarComIA}
+              >
+                <Sparkles size={16}/>{interpretando ? "Interpretando…" : "Interpretar com IA"}
+              </button>
+              <button
+                className="btn fantasma"
+                style={{ flex: 1 }}
+                disabled={!texto.trim() || interpretando}
+                onClick={interpretarComParserLocal}
+              >
+                <PackageSearch size={16}/> Parser local
+              </button>
+            </div>
 
             {interpretando && (
               <div className="ia-pensando">
@@ -649,6 +676,21 @@ export default function App() {
             {erroInterpretacao && !interpretando && (
               <p className="mut mini" style={{ color: "#B03A3A", marginTop: 8 }}>{erroInterpretacao}</p>
             )}
+
+            <label className="rotulo">Ou adicione um item da lista manualmente</label>
+            <div className="linha-manual">
+              <select className="campo" value={produtoManualId ?? ""} onChange={(e) => setProdutoManualId(Number(e.target.value))}>
+                {produtos.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
+              </select>
+              <input
+                type="number" min={1} className="manual-qtd"
+                value={qtdManual}
+                onChange={(e) => setQtdManual(+e.target.value || 1)}
+              />
+              <button className="btn fantasma" disabled={!produtoManualId} onClick={adicionarItemManual}>
+                <Plus size={16}/> Adicionar
+              </button>
+            </div>
 
             {rascunho && !interpretando && (
               <div className="cartao rascunho">

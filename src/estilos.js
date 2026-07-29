@@ -102,6 +102,10 @@ export const CSS = `
 .compacto { padding: 7px 10px; font-size: 13px; }
 .link-exemplo { background: none; border: none; color: var(--blue); font-size: 12.5px; cursor: pointer; padding: 6px 0 12px; text-decoration: underline; }
 
+.linha-manual { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+.linha-manual .campo { flex: 1; }
+.manual-qtd { width: 58px; flex-shrink: 0; padding: 7px; border: 1.5px solid var(--line); border-radius: 8px; font: inherit; text-align: center; }
+
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   padding: 10px 14px; border-radius: 10px; border: none; font: inherit;
