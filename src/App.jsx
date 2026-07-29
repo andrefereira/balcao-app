@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   Sparkles, ClipboardList, PackageSearch, Factory, Truck, Users,
   Check, X, Share2, ChevronLeft, PenLine, Inbox, RotateCcw, LogOut, Bot,
-  PackagePlus, UserPlus, Plus, ImagePlus, Trash2,
+  PackagePlus, UserPlus, Plus, ImagePlus, Trash2, Pencil,
 } from "lucide-react";
 import { supabase, configurado } from "./supabase.js";
 import { parserLocal } from "./parserLocal.js";
@@ -248,6 +248,10 @@ export default function App() {
   const [novoProdutoModificador, setNovoProdutoModificador] = useState("");
   const [novoProdutoFornecedorId, setNovoProdutoFornecedorId] = useState(null);
   const [salvandoCadastro, setSalvandoCadastro] = useState(false);
+  const [editando, setEditando] = useState(null); // { tipo, id, ...campos }
+  const [editandoSalvando, setEditandoSalvando] = useState(false);
+  const [excluindoCadastro, setExcluindoCadastro] = useState(null); // { tipo, id, nome }
+  const [excluindoCadastroSalvando, setExcluindoCadastroSalvando] = useState(false);
 
   // novo pedido
   const [texto, setTexto] = useState("");
@@ -259,6 +263,8 @@ export default function App() {
   const [imagemArquivo, setImagemArquivo] = useState(null);
   const [imagemPreview, setImagemPreview] = useState(null);
   const [produtoManualId, setProdutoManualId] = useState(null);
+  const [buscaProduto, setBuscaProduto] = useState("");
+  const [mostrarSugestoes, setMostrarSugestoes] = useState(false);
   const [qtdManual, setQtdManual] = useState(1);
 
   // foto do pedido (visualização)
@@ -315,9 +321,8 @@ export default function App() {
     setFornecedores(forns || []);
     if ((clis || []).length && clienteId == null) setClienteId(clis[0].id);
     if ((forns || []).length && novoProdutoFornecedorId == null) setNovoProdutoFornecedorId(forns[0].id);
-    if ((prods || []).length && produtoManualId == null) setProdutoManualId(prods[0].id);
     setCarregando(false);
-  }, [sessao, clienteId, novoProdutoFornecedorId, produtoManualId]);
+  }, [sessao, clienteId, novoProdutoFornecedorId]);
 
   useEffect(() => { if (sessao) carregarTudo(); }, [sessao]); // eslint-disable-line
 
@@ -394,6 +399,8 @@ export default function App() {
       { key: `m${Date.now()}`, qtd: qtdManual || 1, escolhido: produtoManualId, opcoes: [produtoManualId], ambiguo: false },
     ]);
     setQtdManual(1);
+    setProdutoManualId(null);
+    setBuscaProduto("");
   };
 
   const criarPedido = async () => {
@@ -547,6 +554,63 @@ export default function App() {
     avisar("Produto cadastrado ✓");
   };
 
+  /* --- edição/exclusão de cadastro (clientes, fornecedores, produtos) --- */
+  const abrirEdicaoCliente = (c) => setEditando({ tipo: "cliente", id: c.id, nome: c.nome, telefone: c.telefone || "" });
+  const abrirEdicaoFornecedor = (f) => setEditando({ tipo: "fornecedor", id: f.id, nome: f.nome });
+  const abrirEdicaoProduto = (p) => setEditando({
+    tipo: "produto", id: p.id, nome: p.nome,
+    chaves: (p.chaves || []).join(", "), modificador: p.modificador || "",
+    fornecedor_id: p.fornecedor_id, ativo: p.ativo,
+  });
+
+  const salvarEdicao = async () => {
+    if (!editando || !editando.nome.trim()) return;
+    setEditandoSalvando(true);
+    let error;
+    if (editando.tipo === "cliente") {
+      ({ error } = await supabase.from("clientes")
+        .update({ nome: editando.nome.trim(), telefone: editando.telefone.trim() || null })
+        .eq("id", editando.id));
+    } else if (editando.tipo === "fornecedor") {
+      ({ error } = await supabase.from("fornecedores")
+        .update({ nome: editando.nome.trim() })
+        .eq("id", editando.id));
+    } else {
+      const chaves = editando.chaves.split(",").map((c) => c.trim().toLowerCase()).filter(Boolean);
+      ({ error } = await supabase.from("produtos")
+        .update({
+          nome: editando.nome.trim(),
+          chaves,
+          modificador: editando.modificador.trim() || null,
+          fornecedor_id: editando.fornecedor_id,
+          ativo: editando.ativo,
+        })
+        .eq("id", editando.id));
+    }
+    setEditandoSalvando(false);
+    if (error) return avisar("Erro ao salvar: " + error.message);
+    setEditando(null);
+    await carregarTudo();
+    avisar("Alterações salvas ✓");
+  };
+
+  const excluirCadastro = async () => {
+    if (!excluindoCadastro) return;
+    setExcluindoCadastroSalvando(true);
+    const tabela = { cliente: "clientes", fornecedor: "fornecedores", produto: "produtos" }[excluindoCadastro.tipo];
+    const { error } = await supabase.from(tabela).delete().eq("id", excluindoCadastro.id);
+    setExcluindoCadastroSalvando(false);
+    if (error) {
+      const msg = error.code === "23503"
+        ? "Não é possível excluir: ainda está sendo usado em pedidos ou produtos cadastrados."
+        : error.message;
+      return avisar("Erro ao excluir: " + msg);
+    }
+    setExcluindoCadastro(null);
+    await carregarTudo();
+    avisar("Excluído ✓");
+  };
+
   const mudarPapel = async (id, papel) => {
     const { error } = await supabase.from("perfis").update({ papel }).eq("id", id);
     if (error) return avisar("Erro: " + error.message);
@@ -679,9 +743,40 @@ export default function App() {
 
             <label className="rotulo">Ou adicione um item da lista manualmente</label>
             <div className="linha-manual">
-              <select className="campo" value={produtoManualId ?? ""} onChange={(e) => setProdutoManualId(Number(e.target.value))}>
-                {produtos.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
-              </select>
+              <div className="busca-produto">
+                <input
+                  className="campo"
+                  placeholder="Digite o nome do produto…"
+                  value={buscaProduto}
+                  onChange={(e) => { setBuscaProduto(e.target.value); setProdutoManualId(null); setMostrarSugestoes(true); }}
+                  onFocus={() => setMostrarSugestoes(true)}
+                  onBlur={() => setTimeout(() => setMostrarSugestoes(false), 150)}
+                />
+                {mostrarSugestoes && buscaProduto.trim() && !produtoManualId && (() => {
+                  const termo = buscaProduto.trim().toLowerCase();
+                  const encontrados = produtos.filter((p) => p.nome.toLowerCase().includes(termo)).slice(0, 8);
+                  return (
+                    <div className="sugestoes">
+                      {encontrados.length === 0 && <div className="sugestao-vazia">Nenhum produto encontrado</div>}
+                      {encontrados.map((p) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          className="sugestao-item"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            setProdutoManualId(p.id);
+                            setBuscaProduto(p.nome);
+                            setMostrarSugestoes(false);
+                          }}
+                        >
+                          {p.nome}
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
               <input
                 type="number" min={1} className="manual-qtd"
                 value={qtdManual}
@@ -938,6 +1033,8 @@ export default function App() {
                   <div key={c.id} className="item-linha">
                     <span className="nome-item">{c.nome}</span>
                     {c.telefone && <span className="mut mini">{c.telefone}</span>}
+                    <button className="btn-x" onClick={() => abrirEdicaoCliente(c)}><Pencil size={15}/></button>
+                    <button className="btn-x" onClick={() => setExcluindoCadastro({ tipo: "cliente", id: c.id, nome: c.nome })}><Trash2 size={15}/></button>
                   </div>
                 ))}
               </>
@@ -955,6 +1052,8 @@ export default function App() {
                 {fornecedores.map((f) => (
                   <div key={f.id} className="item-linha">
                     <span className="nome-item">{f.nome}</span>
+                    <button className="btn-x" onClick={() => abrirEdicaoFornecedor(f)}><Pencil size={15}/></button>
+                    <button className="btn-x" onClick={() => setExcluindoCadastro({ tipo: "fornecedor", id: f.id, nome: f.nome })}><Trash2 size={15}/></button>
                   </div>
                 ))}
               </>
@@ -986,6 +1085,8 @@ export default function App() {
                   <div key={p.id} className="item-linha">
                     <span className="nome-item">{p.nome}</span>
                     <span className="mut mini">{p.fornecedor_nome}</span>
+                    <button className="btn-x" onClick={() => abrirEdicaoProduto(p)}><Pencil size={15}/></button>
+                    <button className="btn-x" onClick={() => setExcluindoCadastro({ tipo: "produto", id: p.id, nome: p.nome })}><Trash2 size={15}/></button>
                   </div>
                 ))}
               </>
@@ -1041,6 +1142,63 @@ export default function App() {
               <button className="btn fantasma" onClick={() => setRecebendoDe(null)}>Cancelar</button>
               <button className="btn primario" disabled={!Object.values(marcados).some(Boolean)} onClick={confirmarRecebimento}>
                 <Check size={16}/> Liberar p/ separação
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editando && (
+        <div className="modal-fundo" onClick={() => !editandoSalvando && setEditando(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Editar {editando.tipo === "cliente" ? "cliente" : editando.tipo === "fornecedor" ? "fornecedor" : "produto"}</h3>
+
+            <label className="rotulo">Nome</label>
+            <input className="campo" value={editando.nome} onChange={(e) => setEditando((ed) => ({ ...ed, nome: e.target.value }))}/>
+
+            {editando.tipo === "cliente" && (
+              <>
+                <label className="rotulo">Telefone</label>
+                <input className="campo" value={editando.telefone} onChange={(e) => setEditando((ed) => ({ ...ed, telefone: e.target.value }))}/>
+              </>
+            )}
+
+            {editando.tipo === "produto" && (
+              <>
+                <label className="rotulo">Palavras-chave (separadas por vírgula)</label>
+                <input className="campo" value={editando.chaves} onChange={(e) => setEditando((ed) => ({ ...ed, chaves: e.target.value }))}/>
+                <label className="rotulo">Modificador (opcional)</label>
+                <input className="campo" value={editando.modificador} onChange={(e) => setEditando((ed) => ({ ...ed, modificador: e.target.value }))}/>
+                <label className="rotulo">Fornecedor</label>
+                <select className="campo" value={editando.fornecedor_id ?? ""} onChange={(e) => setEditando((ed) => ({ ...ed, fornecedor_id: Number(e.target.value) }))}>
+                  {fornecedores.map((f) => <option key={f.id} value={f.id}>{f.nome}</option>)}
+                </select>
+                <label className="check-linha">
+                  <input type="checkbox" checked={editando.ativo} onChange={(e) => setEditando((ed) => ({ ...ed, ativo: e.target.checked }))}/>
+                  <span>Ativo (aparece no pedido e no parser)</span>
+                </label>
+              </>
+            )}
+
+            <div className="linha-btns">
+              <button className="btn fantasma" disabled={editandoSalvando} onClick={() => setEditando(null)}>Cancelar</button>
+              <button className="btn primario" disabled={!editando.nome.trim() || editandoSalvando} onClick={salvarEdicao}>
+                <Check size={16}/> {editandoSalvando ? "Salvando…" : "Salvar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {excluindoCadastro && (
+        <div className="modal-fundo" onClick={() => !excluindoCadastroSalvando && setExcluindoCadastro(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Excluir "{excluindoCadastro.nome}"?</h3>
+            <p className="mut">Essa ação não pode ser desfeita.</p>
+            <div className="linha-btns">
+              <button className="btn fantasma" disabled={excluindoCadastroSalvando} onClick={() => setExcluindoCadastro(null)}>Cancelar</button>
+              <button className="btn perigo" disabled={excluindoCadastroSalvando} onClick={excluirCadastro}>
+                <Trash2 size={15}/> {excluindoCadastroSalvando ? "Excluindo…" : "Excluir definitivamente"}
               </button>
             </div>
           </div>

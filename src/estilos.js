@@ -102,9 +102,22 @@ export const CSS = `
 .compacto { padding: 7px 10px; font-size: 13px; }
 .link-exemplo { background: none; border: none; color: var(--blue); font-size: 12.5px; cursor: pointer; padding: 6px 0 12px; text-decoration: underline; }
 
-.linha-manual { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
-.linha-manual .campo { flex: 1; }
-.manual-qtd { width: 58px; flex-shrink: 0; padding: 7px; border: 1.5px solid var(--line); border-radius: 8px; font: inherit; text-align: center; }
+.linha-manual { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 10px; }
+.busca-produto { position: relative; flex: 1; }
+.manual-qtd { width: 58px; flex-shrink: 0; padding: 10px 7px; border: 1.5px solid var(--line); border-radius: 10px; font: inherit; text-align: center; }
+.sugestoes {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 20;
+  background: var(--card); border: 1.5px solid var(--line); border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(31,42,68,.14); max-height: 220px; overflow-y: auto;
+}
+.sugestao-item {
+  display: block; width: 100%; text-align: left; background: none; border: none;
+  padding: 9px 12px; font: inherit; font-size: 13.5px; color: var(--ink); cursor: pointer;
+  border-bottom: 1px dashed var(--line);
+}
+.sugestao-item:last-child { border-bottom: none; }
+.sugestao-item:hover { background: #F6F3EC; }
+.sugestao-vazia { padding: 10px 12px; font-size: 12.5px; color: var(--ink-soft); }
 
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
