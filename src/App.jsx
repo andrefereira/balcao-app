@@ -396,7 +396,7 @@ export default function App() {
     if (!produtoManualId) return;
     setRascunho((atual) => [
       ...(atual || []),
-      { key: `m${Date.now()}`, qtd: qtdManual || 1, escolhido: produtoManualId, opcoes: [produtoManualId], ambiguo: false },
+      { key: `m${Date.now()}`, qtd: Number(qtdManual) > 0 ? Number(qtdManual) : 1, escolhido: produtoManualId, opcoes: [produtoManualId], ambiguo: false },
     ]);
     setQtdManual(1);
     setProdutoManualId(null);
@@ -418,7 +418,7 @@ export default function App() {
         pedido_id: ped.id,
         produto_id: pr.id,
         nome: pr.nome,
-        qtd: r.qtd,
+        qtd: Number(r.qtd) > 0 ? Number(r.qtd) : 1,
         status: "pendente",
         fornecedor: pr.fornecedor_nome,
       };
@@ -780,7 +780,8 @@ export default function App() {
               <input
                 type="number" min={1} className="manual-qtd"
                 value={qtdManual}
-                onChange={(e) => setQtdManual(+e.target.value || 1)}
+                onChange={(e) => setQtdManual(e.target.value === "" ? "" : Number(e.target.value))}
+                onBlur={() => setQtdManual((v) => (v === "" || Number(v) < 1 ? 1 : Number(v)))}
               />
               <button className="btn fantasma" disabled={!produtoManualId} onClick={adicionarItemManual}>
                 <Plus size={16}/> Adicionar
@@ -798,7 +799,11 @@ export default function App() {
                       <input
                         type="number" min={1} className="qtd"
                         value={r.qtd}
-                        onChange={(e) => setRascunho((rs) => rs.map((x) => x.key === r.key ? { ...x, qtd: +e.target.value || 1 } : x))}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setRascunho((rs) => rs.map((x) => x.key === r.key ? { ...x, qtd: v === "" ? "" : Number(v) } : x));
+                        }}
+                        onBlur={() => setRascunho((rs) => rs.map((x) => x.key === r.key ? { ...x, qtd: x.qtd === "" || Number(x.qtd) < 1 ? 1 : Number(x.qtd) } : x))}
                       />
                       {r.ambiguo ? (
                         <div className="amb-bloco">
