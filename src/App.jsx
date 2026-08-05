@@ -247,6 +247,7 @@ export default function App() {
   const [novoProdutoChaves, setNovoProdutoChaves] = useState("");
   const [novoProdutoModificador, setNovoProdutoModificador] = useState("");
   const [novoProdutoFornecedorId, setNovoProdutoFornecedorId] = useState(null);
+  const [novoProdutoEstoque, setNovoProdutoEstoque] = useState(0);
   const [salvandoCadastro, setSalvandoCadastro] = useState(false);
   const [editando, setEditando] = useState(null); // { tipo, id, ...campos }
   const [editandoSalvando, setEditandoSalvando] = useState(false);
@@ -448,7 +449,21 @@ export default function App() {
     await carregarTudo();
   };
 
+  const separarItem = async (it) => {
+    const { error: eStatus } = await supabase.from("itens_pedido").update({ status: "separado" }).eq("id", it.id);
+    if (eStatus) return avisar("Erro: " + eStatus.message);
+    const { data: novoEstoque, error: eEstoque } = await supabase.rpc("baixar_estoque", {
+      p_produto_id: it.produto_id,
+      p_qtd: it.qtd,
+    });
+    await carregarTudo();
+    if (eEstoque) avisar("Item separado, mas a baixa no estoque falhou: " + eEstoque.message);
+    else if (typeof novoEstoque === "number" && novoEstoque < 0) avisar(`Item separado — atenção: estoque ficou negativo (${novoEstoque}), confira a contagem`);
+    else avisar("Item separado ✓");
+  };
+
   /* --- derivados --- */
+  const produtosPorId = Object.fromEntries(produtos.map((p) => [p.id, p]));
   const itensSeparacao = pedidos.flatMap((p) =>
     p.itens.filter((i) => i.status === "pendente").map((i) => ({ ...i, pedido: p })));
   const itensAguardando = pedidos.flatMap((p) =>
@@ -545,11 +560,12 @@ export default function App() {
       chaves,
       modificador: novoProdutoModificador.trim() || null,
       fornecedor_id: novoProdutoFornecedorId,
+      estoque: Number(novoProdutoEstoque) > 0 ? Number(novoProdutoEstoque) : 0,
       ativo: true,
     });
     setSalvandoCadastro(false);
     if (error) return avisar("Erro ao cadastrar produto: " + error.message);
-    setNovoProdutoNome(""); setNovoProdutoChaves(""); setNovoProdutoModificador("");
+    setNovoProdutoNome(""); setNovoProdutoChaves(""); setNovoProdutoModificador(""); setNovoProdutoEstoque(0);
     await carregarTudo();
     avisar("Produto cadastrado ✓");
   };
@@ -560,7 +576,7 @@ export default function App() {
   const abrirEdicaoProduto = (p) => setEditando({
     tipo: "produto", id: p.id, nome: p.nome,
     chaves: (p.chaves || []).join(", "), modificador: p.modificador || "",
-    fornecedor_id: p.fornecedor_id, ativo: p.ativo,
+    fornecedor_id: p.fornecedor_id, ativo: p.ativo, estoque: p.estoque ?? 0,
   });
 
   const salvarEdicao = async () => {
@@ -584,6 +600,7 @@ export default function App() {
           modificador: editando.modificador.trim() || null,
           fornecedor_id: editando.fornecedor_id,
           ativo: editando.ativo,
+          estoque: Number(editando.estoque) >= 0 ? Number(editando.estoque) : 0,
         })
         .eq("id", editando.id));
     }
@@ -937,23 +954,28 @@ export default function App() {
             {itensSeparacao.length === 0 && (
               <div className="vazio"><Inbox size={28}/><p>Nada para separar agora. 👌</p></div>
             )}
-            {itensSeparacao.map((it) => (
-              <div key={it.id} className="cartao">
-                <p className="mut mini">Pedido #{it.pedido.id} · {it.pedido.cliente_nome}</p>
-                <div className="item-linha">
-                  <span className="qtd-fixa">{it.qtd}x</span>
-                  <span className="nome-item">{it.nome}</span>
+            {itensSeparacao.map((it) => {
+              const estoqueAtual = produtosPorId[it.produto_id]?.estoque ?? 0;
+              const faltaEstoque = estoqueAtual < it.qtd;
+              return (
+                <div key={it.id} className="cartao">
+                  <p className="mut mini">Pedido #{it.pedido.id} · {it.pedido.cliente_nome}</p>
+                  <div className="item-linha">
+                    <span className="qtd-fixa">{it.qtd}x</span>
+                    <span className="nome-item">{it.nome}</span>
+                    <span className={`mut mini ${faltaEstoque ? "estoque-baixo" : ""}`}>Estoque: {estoqueAtual}</span>
+                  </div>
+                  <div className="linha-btns">
+                    <button className="btn ok" onClick={() => separarItem(it)}>
+                      <Check size={15}/> Separado
+                    </button>
+                    <button className="btn alerta" onClick={() => { mudarItem(it.id, { status: "aguardando" }); avisar(`Enviado para a lista: ${it.fornecedor}`); }}>
+                      <X size={15}/> Sem estoque
+                    </button>
+                  </div>
                 </div>
-                <div className="linha-btns">
-                  <button className="btn ok" onClick={() => { mudarItem(it.id, { status: "separado" }); avisar("Item separado ✓"); }}>
-                    <Check size={15}/> Separado
-                  </button>
-                  <button className="btn alerta" onClick={() => { mudarItem(it.id, { status: "aguardando" }); avisar(`Enviado para a lista: ${it.fornecedor}`); }}>
-                    <X size={15}/> Sem estoque
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </section>
         )}
 
@@ -1089,6 +1111,13 @@ export default function App() {
                   >
                     {fornecedores.map((f) => <option key={f.id} value={f.id}>{f.nome}</option>)}
                   </select>
+                  <label className="rotulo">Estoque inicial</label>
+                  <input
+                    type="number" min={0} className="campo"
+                    value={novoProdutoEstoque}
+                    onChange={(e) => setNovoProdutoEstoque(e.target.value === "" ? "" : Number(e.target.value))}
+                    onBlur={() => setNovoProdutoEstoque((v) => (v === "" || Number(v) < 0 ? 0 : Number(v)))}
+                  />
                   <button className="btn primario largo" disabled={!novoProdutoNome.trim() || !fornecedores.length || salvandoCadastro} onClick={criarProduto}>
                     <Plus size={16}/> {salvandoCadastro ? "Salvando…" : "Cadastrar produto"}
                   </button>
@@ -1097,7 +1126,7 @@ export default function App() {
                 {produtos.map((p) => (
                   <div key={p.id} className="item-linha">
                     <span className="nome-item">{p.nome}</span>
-                    <span className="mut mini">{p.fornecedor_nome}</span>
+                    <span className="mut mini">{p.fornecedor_nome} · estoque: {p.estoque ?? 0}</span>
                     <button className="btn-x" onClick={() => abrirEdicaoProduto(p)}><Pencil size={15}/></button>
                     <button className="btn-x" onClick={() => setExcluindoCadastro({ tipo: "produto", id: p.id, nome: p.nome })}><Trash2 size={15}/></button>
                   </div>
@@ -1186,6 +1215,13 @@ export default function App() {
                 <select className="campo" value={editando.fornecedor_id ?? ""} onChange={(e) => setEditando((ed) => ({ ...ed, fornecedor_id: Number(e.target.value) }))}>
                   {fornecedores.map((f) => <option key={f.id} value={f.id}>{f.nome}</option>)}
                 </select>
+                <label className="rotulo">Estoque</label>
+                <input
+                  type="number" min={0} className="campo"
+                  value={editando.estoque}
+                  onChange={(e) => setEditando((ed) => ({ ...ed, estoque: e.target.value === "" ? "" : Number(e.target.value) }))}
+                  onBlur={() => setEditando((ed) => (ed && ed.tipo === "produto" ? { ...ed, estoque: ed.estoque === "" || Number(ed.estoque) < 0 ? 0 : Number(ed.estoque) } : ed))}
+                />
                 <label className="check-linha">
                   <input type="checkbox" checked={editando.ativo} onChange={(e) => setEditando((ed) => ({ ...ed, ativo: e.target.checked }))}/>
                   <span>Ativo (aparece no pedido e no parser)</span>

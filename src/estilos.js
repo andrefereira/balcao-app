@@ -74,6 +74,7 @@ export const CSS = `
 .item-linha { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px dashed var(--line); flex-wrap: wrap; }
 .item-linha:last-of-type { border-bottom: 0; }
 .qtd-fixa { font-weight: 600; color: var(--blue); min-width: 34px; }
+.estoque-baixo { color: #B03A3A; font-weight: 600; }
 .nome-item { flex: 1; min-width: 140px; }
 
 .chip {

@@ -45,10 +45,19 @@ supabase/
   Claude (visão) numa única chamada. Precisa da migração
   `supabase/storage_fotos_pedido.sql` (bucket `fotos-pedido` + coluna
   `pedidos.foto_pedido_path`) rodada no SQL Editor.
-- **Edge Function `interpretar-pedido` ainda não foi publicada** (`supabase functions
-  deploy`) — sem isso, texto cai no parser local (`parserLocal.js`) e uma foto anexada não
-  tem como ser lida (aparece aviso pedindo pra publicar a função). Publicar é o próximo
-  passo natural para a IA (texto e imagem) funcionar de verdade.
+- **Edge Function `interpretar-pedido` publicada e testada** (via editor do painel do
+  Supabase, não CLI), com `ANTHROPIC_API_KEY` configurada — confirmado funcionando com
+  chamada real à API do Claude. Em "Novo pedido" agora tem **dois botões separados**
+  ("Interpretar com IA" e "Parser local", ambos disponíveis sempre — sem fallback
+  automático) e um **campo de busca** pra adicionar item manualmente (digita o nome,
+  aparecem sugestões).
+- **Controle de estoque**: produtos têm campo `estoque` (editável em Cadastro → Produtos,
+  criação e edição). Ao marcar um item como "Separado" na aba Separação, o estoque do
+  produto é baixado automaticamente (função `baixar_estoque` no banco, atômica). Se ficar
+  negativo, mostra aviso. Precisa da migração `supabase/estoque.sql` rodada no SQL Editor
+  — sem ela, a coluna `estoque` não existe e a baixa falha.
+- Cadastro (clientes/produtos/fornecedores) agora tem **editar** e **excluir** por item,
+  com confirmação; exclusão bloqueada por vínculo (FK) mostra mensagem amigável.
 
 ## Papéis e telas
 
