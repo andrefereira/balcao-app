@@ -234,8 +234,14 @@ export const CSS = `
   font-size: 13.5px; margin-top: 12px;
 }
 
-/* ---- anexo de foto (novo pedido) ---- */
+.titulo-cartao { font-family: 'Outfit', sans-serif; font-size: 15px; margin-bottom: 8px; }
+
+/* ---- anexo de foto (novo pedido) / planilha (cadastro) ---- */
 .anexo-label { cursor: pointer; }
+.anexo-label.desabilitado { opacity: .55; pointer-events: none; }
+.resultado-importacao { margin-top: 12px; }
+.lista-erros { margin: 6px 0 0; padding-left: 18px; font-size: 12px; color: var(--ink-soft); }
+.lista-erros li { margin-bottom: 3px; }
 .anexo-preview {
   position: relative; margin-top: 10px; border-radius: 12px; overflow: hidden;
   border: 1.5px solid var(--line); max-height: 260px;

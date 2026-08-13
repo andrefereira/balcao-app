@@ -2,10 +2,11 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   Sparkles, ClipboardList, PackageSearch, Factory, Truck, Users,
   Check, X, Share2, ChevronLeft, PenLine, Inbox, RotateCcw, LogOut, Bot,
-  PackagePlus, UserPlus, Plus, ImagePlus, Trash2, Pencil,
+  PackagePlus, UserPlus, Plus, ImagePlus, Trash2, Pencil, Download, Upload,
 } from "lucide-react";
 import { supabase, configurado } from "./supabase.js";
 import { parserLocal } from "./parserLocal.js";
+import { baixarModeloPlanilha, processarPlanilhaProdutos } from "./planilha.js";
 import { CSS } from "./estilos.js";
 import logoEducarte from "./assets/logo-educarte.webp";
 
@@ -253,6 +254,8 @@ export default function App() {
   const [editandoSalvando, setEditandoSalvando] = useState(false);
   const [excluindoCadastro, setExcluindoCadastro] = useState(null); // { tipo, id, nome }
   const [excluindoCadastroSalvando, setExcluindoCadastroSalvando] = useState(false);
+  const [importandoPlanilha, setImportandoPlanilha] = useState(false);
+  const [resultadoImportacao, setResultadoImportacao] = useState(null);
 
   // novo pedido
   const [texto, setTexto] = useState("");
@@ -626,6 +629,27 @@ export default function App() {
     setExcluindoCadastro(null);
     await carregarTudo();
     avisar("Excluído ✓");
+  };
+
+  const selecionarPlanilha = async (e) => {
+    const arquivo = e.target.files?.[0];
+    e.target.value = "";
+    if (!arquivo) return;
+    setImportandoPlanilha(true);
+    setResultadoImportacao(null);
+    try {
+      const { validos, erros } = await processarPlanilhaProdutos(arquivo, fornecedores);
+      if (validos.length) {
+        const { error } = await supabase.from("produtos").insert(validos);
+        if (error) throw error;
+        await carregarTudo();
+      }
+      setResultadoImportacao({ total: validos.length, erros });
+      avisar(validos.length ? `${validos.length} produto(s) cadastrado(s) ✓` : "Nenhum produto válido encontrado na planilha");
+    } catch (e) {
+      avisar("Erro ao importar planilha: " + (e.message || e));
+    }
+    setImportandoPlanilha(false);
   };
 
   const mudarPapel = async (id, papel) => {
@@ -1123,6 +1147,45 @@ export default function App() {
                   </button>
                   {!fornecedores.length && <p className="mut mini" style={{ marginTop: 8 }}>Cadastre um fornecedor antes de criar produtos.</p>}
                 </div>
+
+                <div className="cartao">
+                  <h3 className="titulo-cartao">Cadastro em lote por planilha</h3>
+                  <p className="mut mini">Baixe o modelo, preencha e envie de volta pra cadastrar vários produtos de uma vez.</p>
+                  <div className="linha-btns">
+                    <button className="btn fantasma" style={{ flex: 1 }} onClick={() => baixarModeloPlanilha(fornecedores)}>
+                      <Download size={16}/> Baixar modelo
+                    </button>
+                    <label className={`btn primario anexo-label ${importandoPlanilha ? "desabilitado" : ""}`} style={{ flex: 1 }}>
+                      <Upload size={16}/> {importandoPlanilha ? "Importando…" : "Enviar planilha"}
+                      <input
+                        type="file" accept=".xlsx,.xls"
+                        onChange={selecionarPlanilha}
+                        disabled={importandoPlanilha}
+                        style={{ display: "none" }}
+                      />
+                    </label>
+                  </div>
+                  {resultadoImportacao && (
+                    <div className="resultado-importacao">
+                      <p className="mut mini">
+                        <strong>{resultadoImportacao.total}</strong> produto(s) cadastrado(s).
+                      </p>
+                      {resultadoImportacao.erros.length > 0 && (
+                        <>
+                          <p className="mut mini" style={{ color: "#B03A3A" }}>
+                            {resultadoImportacao.erros.length} linha(s) com problema:
+                          </p>
+                          <ul className="lista-erros">
+                            {resultadoImportacao.erros.map((e, i) => (
+                              <li key={i}>Linha {e.linha} ({e.nome || "sem nome"}): {e.motivo}</li>
+                            ))}
+                          </ul>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+
                 {produtos.map((p) => (
                   <div key={p.id} className="item-linha">
                     <span className="nome-item">{p.nome}</span>

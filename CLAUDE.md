@@ -58,6 +58,13 @@ supabase/
   — sem ela, a coluna `estoque` não existe e a baixa falha.
 - Cadastro (clientes/produtos/fornecedores) agora tem **editar** e **excluir** por item,
   com confirmação; exclusão bloqueada por vínculo (FK) mostra mensagem amigável.
+- **Cadastro em lote de produtos por planilha** (Cadastro → Produtos): botão baixa um
+  modelo `.xlsx` (colunas Nome/Palavras-chave/Modificador/Fornecedor/Estoque/Ativo + aba
+  com os fornecedores cadastrados) e outro envia a planilha preenchida, cadastrando tudo
+  de uma vez (`src/planilha.js`). Usa `xlsx` (SheetJS) — instalado a partir do **tarball
+  oficial do CDN deles**, não do pacote no npm (que tem vulnerabilidades sem correção
+  publicada); ver versão exata em `package.json`. Importado via `import()` dinâmico pra
+  não engordar o bundle inicial (só carrega quando a função é usada).
 
 ## Papéis e telas
 
