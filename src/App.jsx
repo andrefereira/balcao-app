@@ -6,7 +6,10 @@ import {
 } from "lucide-react";
 import { supabase, configurado } from "./supabase.js";
 import { parserLocal } from "./parserLocal.js";
-import { baixarModeloPlanilha, processarPlanilhaProdutos } from "./planilha.js";
+import {
+  baixarModeloPlanilha, processarPlanilhaProdutos,
+  baixarModeloPlanilhaFornecedores, processarPlanilhaFornecedores,
+} from "./planilha.js";
 import { CSS } from "./estilos.js";
 import logoEducarte from "./assets/logo-educarte.webp";
 
@@ -631,7 +634,7 @@ export default function App() {
     avisar("Excluído ✓");
   };
 
-  const selecionarPlanilha = async (e) => {
+  const selecionarPlanilhaProdutos = async (e) => {
     const arquivo = e.target.files?.[0];
     e.target.value = "";
     if (!arquivo) return;
@@ -644,8 +647,29 @@ export default function App() {
         if (error) throw error;
         await carregarTudo();
       }
-      setResultadoImportacao({ total: validos.length, erros });
+      setResultadoImportacao({ tipo: "produto", total: validos.length, erros });
       avisar(validos.length ? `${validos.length} produto(s) cadastrado(s) ✓` : "Nenhum produto válido encontrado na planilha");
+    } catch (e) {
+      avisar("Erro ao importar planilha: " + (e.message || e));
+    }
+    setImportandoPlanilha(false);
+  };
+
+  const selecionarPlanilhaFornecedores = async (e) => {
+    const arquivo = e.target.files?.[0];
+    e.target.value = "";
+    if (!arquivo) return;
+    setImportandoPlanilha(true);
+    setResultadoImportacao(null);
+    try {
+      const { validos, erros } = await processarPlanilhaFornecedores(arquivo, fornecedores);
+      if (validos.length) {
+        const { error } = await supabase.from("fornecedores").insert(validos);
+        if (error) throw error;
+        await carregarTudo();
+      }
+      setResultadoImportacao({ tipo: "fornecedor", total: validos.length, erros });
+      avisar(validos.length ? `${validos.length} fornecedor(es) cadastrado(s) ✓` : "Nenhum fornecedor válido encontrado na planilha");
     } catch (e) {
       avisar("Erro ao importar planilha: " + (e.message || e));
     }
@@ -1108,6 +1132,45 @@ export default function App() {
                     <Plus size={16}/> {salvandoCadastro ? "Salvando…" : "Cadastrar fornecedor"}
                   </button>
                 </div>
+
+                <div className="cartao">
+                  <h3 className="titulo-cartao">Cadastro em lote por planilha</h3>
+                  <p className="mut mini">Baixe o modelo, preencha e envie de volta pra cadastrar vários fornecedores de uma vez.</p>
+                  <div className="linha-btns">
+                    <button className="btn fantasma" style={{ flex: 1 }} onClick={() => baixarModeloPlanilhaFornecedores()}>
+                      <Download size={16}/> Baixar modelo
+                    </button>
+                    <label className={`btn primario anexo-label ${importandoPlanilha ? "desabilitado" : ""}`} style={{ flex: 1 }}>
+                      <Upload size={16}/> {importandoPlanilha ? "Importando…" : "Enviar planilha"}
+                      <input
+                        type="file" accept=".xlsx,.xls"
+                        onChange={selecionarPlanilhaFornecedores}
+                        disabled={importandoPlanilha}
+                        style={{ display: "none" }}
+                      />
+                    </label>
+                  </div>
+                  {resultadoImportacao && resultadoImportacao.tipo === "fornecedor" && (
+                    <div className="resultado-importacao">
+                      <p className="mut mini">
+                        <strong>{resultadoImportacao.total}</strong> fornecedor(es) cadastrado(s).
+                      </p>
+                      {resultadoImportacao.erros.length > 0 && (
+                        <>
+                          <p className="mut mini" style={{ color: "#B03A3A" }}>
+                            {resultadoImportacao.erros.length} linha(s) com problema:
+                          </p>
+                          <ul className="lista-erros">
+                            {resultadoImportacao.erros.map((e, i) => (
+                              <li key={i}>Linha {e.linha} ({e.nome || "sem nome"}): {e.motivo}</li>
+                            ))}
+                          </ul>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+
                 {fornecedores.map((f) => (
                   <div key={f.id} className="item-linha">
                     <span className="nome-item">{f.nome}</span>
@@ -1159,13 +1222,13 @@ export default function App() {
                       <Upload size={16}/> {importandoPlanilha ? "Importando…" : "Enviar planilha"}
                       <input
                         type="file" accept=".xlsx,.xls"
-                        onChange={selecionarPlanilha}
+                        onChange={selecionarPlanilhaProdutos}
                         disabled={importandoPlanilha}
                         style={{ display: "none" }}
                       />
                     </label>
                   </div>
-                  {resultadoImportacao && (
+                  {resultadoImportacao && resultadoImportacao.tipo === "produto" && (
                     <div className="resultado-importacao">
                       <p className="mut mini">
                         <strong>{resultadoImportacao.total}</strong> produto(s) cadastrado(s).

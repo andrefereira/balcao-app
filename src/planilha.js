@@ -89,3 +89,47 @@ export async function processarPlanilhaProdutos(arquivo, fornecedores) {
 
   return { validos, erros };
 }
+
+export async function baixarModeloPlanilhaFornecedores() {
+  const XLSX = await import("xlsx");
+  const wb = XLSX.utils.book_new();
+  const linhas = [["Nome"], ["Nova Distribuidora"]];
+  const ws = XLSX.utils.aoa_to_sheet(linhas);
+  ws["!cols"] = [{ wch: 34 }];
+  XLSX.utils.book_append_sheet(wb, ws, "Fornecedores");
+  XLSX.writeFile(wb, "modelo-fornecedores-educarte.xlsx");
+}
+
+export async function processarPlanilhaFornecedores(arquivo, fornecedoresExistentes) {
+  const XLSX = await import("xlsx");
+  const buffer = await arquivo.arrayBuffer();
+  const wb = XLSX.read(buffer, { type: "array" });
+  const primeiraAba = wb.SheetNames[0];
+  const linhas = XLSX.utils.sheet_to_json(wb.Sheets[primeiraAba], { defval: "" });
+
+  const jaExistentes = new Set(fornecedoresExistentes.map((f) => f.nome.trim().toLowerCase()));
+
+  const validos = [];
+  const erros = [];
+  const vistosNaPlanilha = new Set();
+
+  linhas.forEach((linha, idx) => {
+    const numeroLinha = idx + 2; // linha 1 é o cabeçalho
+    const nome = String(linha["Nome"] ?? "").trim();
+    if (!nome) return; // linha em branco — ignora sem contar como erro
+
+    const chave = nome.toLowerCase();
+    if (jaExistentes.has(chave)) {
+      erros.push({ linha: numeroLinha, nome, motivo: "Já existe um fornecedor com esse nome" });
+      return;
+    }
+    if (vistosNaPlanilha.has(chave)) {
+      erros.push({ linha: numeroLinha, nome, motivo: "Repetido na própria planilha" });
+      return;
+    }
+    vistosNaPlanilha.add(chave);
+    validos.push({ nome });
+  });
+
+  return { validos, erros };
+}
